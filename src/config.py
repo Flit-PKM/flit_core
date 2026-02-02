@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     PROJECT_NAME: str = "Flit Core"
     ENVIRONMENT: str = "development"
 
+    # Server Settings
+    PORT: int = Field(default=8000, ge=1, le=65535, description="Server port")
+
     # JWT Settings - SECRET_KEY is required and must be set via environment variable
     SECRET_KEY: str = Field(..., min_length=32, description="Secret key for JWT tokens (minimum 32 characters)")
     ALGORITHM: str = "HS256"
