@@ -21,7 +21,10 @@ from routes.relationship import router as relationship_router
 from routes.subscription import router as subscription_router
 from middleware.logging import RequestLoggingMiddleware, log_exceptions_middleware
 from logging_config import setup_logging
+from sqlalchemy import text
+
 from config import settings
+from database.engine import engine
 from exceptions import (
     BaseAppException,
     NotFoundError,
@@ -60,6 +63,21 @@ app = FastAPI(
 )
 
 
+@app.get("/health")
+async def health():
+    """Readiness/liveness: returns 200 and optionally checks DB connectivity."""
+    try:
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+    except Exception as e:
+        logger.warning("Health check DB probe failed: %s", e)
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={"status": "unhealthy", "detail": "database unreachable"},
+        )
+    return {"status": "ok"}
+
+
 # Exception handlers: custom app exceptions via mapping; validation and base stay explicit
 _APP_EXCEPTION_HANDLERS: dict[type[BaseAppException], tuple[int, dict[str, str] | None]] = {
     NotFoundError: (status.HTTP_404_NOT_FOUND, None),
@@ -76,9 +94,13 @@ async def _app_exception_handler(request: Request, exc: BaseAppException) -> JSO
     status_code, headers = _APP_EXCEPTION_HANDLERS.get(
         type(exc), (status.HTTP_500_INTERNAL_SERVER_ERROR, None)
     )
+    detail = exc.detail
+    if status_code == status.HTTP_500_INTERNAL_SERVER_ERROR and settings.ENVIRONMENT == "production":
+        logger.exception("Unhandled BaseAppException (detail hidden in response)")
+        detail = "Internal server error"
     return JSONResponse(
         status_code=status_code,
-        content={"detail": exc.detail},
+        content={"detail": detail},
         headers=headers,
     )
 
@@ -101,15 +123,24 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
         "\n".join("    " + line for line in errors_formatted.splitlines()),
         "\n".join("    " + line for line in body_formatted.splitlines()),
     )
+    content: dict = {"detail": exc.errors()}
+    if settings.ENVIRONMENT == "development" and hasattr(exc, "body"):
+        content["body"] = exc.body
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-        content={"detail": exc.errors(), "body": exc.body if hasattr(exc, 'body') else None},
+        content=content,
     )
 
 
 @app.exception_handler(BaseAppException)
 async def base_app_exception_handler(request: Request, exc: BaseAppException):
-    """Handle any other BaseAppException exceptions."""
+    """Handle any other BaseAppException exceptions (fallback when not in mapping)."""
+    if settings.ENVIRONMENT == "production":
+        logger.exception("BaseAppException (detail hidden in response)")
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={"detail": "Internal server error"},
+        )
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={"detail": exc.detail},

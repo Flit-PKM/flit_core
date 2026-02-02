@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import json
-from typing import List, Optional
+from typing import List, Literal, Optional
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from urllib.parse import quote
 
@@ -54,7 +54,7 @@ class Settings(BaseSettings):
     )
 
     # Logging Settings
-    LOG_LEVEL: str = "DEBUG"
+    LOG_LEVEL: str = "INFO"
     LOG_FORMAT: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 
     # CORS Settings
@@ -63,14 +63,25 @@ class Settings(BaseSettings):
         description="Allowed CORS origins"
     )
 
-    # Database Settings - All required, no defaults for security
-    DB_USER: str = Field(..., description="Database user")
-    DB_PASSWORD: str = Field(..., min_length=8, description="Database password (minimum 8 characters)")
-    DB_HOST: str = Field(default="localhost", description="Database host")
-    DB_PORT: int = Field(default=5432, ge=1, le=65535, description="Database port")
-    DB_NAME: str = Field(..., description="Database name")
+    # Database backend: postgres (default) or d1 (Cloudflare D1)
+    DB_BACKEND: Literal["postgres", "d1"] = Field(
+        default="postgres",
+        description="Database backend: postgres or d1 (Cloudflare D1)",
+    )
 
-    # Database Connection Pool Settings
+    # PostgreSQL settings (required when DB_BACKEND=postgres)
+    DB_USER: Optional[str] = Field(default=None, description="Database user (PostgreSQL)")
+    DB_PASSWORD: Optional[str] = Field(default=None, description="Database password (PostgreSQL, min 8 chars)")
+    DB_HOST: str = Field(default="localhost", description="Database host (PostgreSQL)")
+    DB_PORT: int = Field(default=5432, ge=1, le=65535, description="Database port (PostgreSQL)")
+    DB_NAME: Optional[str] = Field(default=None, description="Database name (PostgreSQL)")
+
+    # Cloudflare D1 settings (required when DB_BACKEND=d1)
+    CF_ACCOUNT_ID: Optional[str] = Field(default=None, description="Cloudflare account ID (D1)")
+    CF_API_TOKEN: Optional[str] = Field(default=None, description="Cloudflare API token with D1 permissions")
+    CF_DATABASE_ID: Optional[str] = Field(default=None, description="Cloudflare D1 database ID")
+
+    # Database Connection Pool Settings (PostgreSQL only)
     DB_POOL_SIZE: int = Field(default=5, ge=1, le=100, description="Database connection pool size")
     DB_MAX_OVERFLOW: int = Field(default=10, ge=0, le=100, description="Maximum overflow connections")
 
@@ -102,7 +113,7 @@ class Settings(BaseSettings):
     @classmethod
     def validate_environment(cls, v: str) -> str:
         """Validate environment value."""
-        allowed = {"development", "staging", "production"}
+        allowed = {"development", "staging", "production", "test"}
         if v not in allowed:
             raise ValueError(f"ENVIRONMENT must be one of {allowed}")
         return v
@@ -115,6 +126,38 @@ class Settings(BaseSettings):
         if v.upper() not in allowed:
             raise ValueError(f"LOG_LEVEL must be one of {allowed}")
         return v.upper()
+
+    @model_validator(mode="after")
+    def validate_database_backend(self) -> "Settings":
+        """Require backend-specific env vars: DB_* for postgres, CF_* for d1."""
+        if self.DB_BACKEND == "d1":
+            missing = [k for k, v in [
+                ("CF_ACCOUNT_ID", self.CF_ACCOUNT_ID),
+                ("CF_API_TOKEN", self.CF_API_TOKEN),
+                ("CF_DATABASE_ID", self.CF_DATABASE_ID),
+            ] if not v]
+            if missing:
+                raise ValueError(
+                    f"When DB_BACKEND=d1, the following are required: {', '.join(missing)}"
+                )
+        else:
+            missing = [k for k, v in [
+                ("DB_USER", self.DB_USER),
+                ("DB_PASSWORD", self.DB_PASSWORD),
+                ("DB_NAME", self.DB_NAME),
+            ] if not v]
+            if missing:
+                raise ValueError(
+                    f"When DB_BACKEND=postgres, the following are required: {', '.join(missing)}"
+                )
+            if self.DB_PASSWORD and len(self.DB_PASSWORD) < 8:
+                raise ValueError("DB_PASSWORD must be at least 8 characters")
+        return self
+
+    @property
+    def is_d1(self) -> bool:
+        """True when using Cloudflare D1 backend."""
+        return self.DB_BACKEND == "d1"
 
     def get_allowed_apps(self) -> List[dict[str, str]]:
         """Return app list from ALLOWED_APPS_JSON if set, else default."""
@@ -132,8 +175,11 @@ class Settings(BaseSettings):
 
     @property
     def DATABASE_URL(self) -> str:
-        """Generate database URL from connection parameters."""
-        encoded_pw = quote(self.DB_PASSWORD)
+        """Generate database URL from connection parameters for the active backend."""
+        if self.DB_BACKEND == "d1":
+            token = quote(self.CF_API_TOKEN or "", safe="")
+            return f"cloudflare_d1+async://{self.CF_ACCOUNT_ID}:{token}@{self.CF_DATABASE_ID}"
+        encoded_pw = quote(self.DB_PASSWORD or "", safe="")
         return f"postgresql+asyncpg://{self.DB_USER}:{encoded_pw}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
 
 

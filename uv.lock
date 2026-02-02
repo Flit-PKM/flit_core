@@ -354,6 +354,7 @@ dependencies = [
     { name = "python-jose", extra = ["cryptography"] },
     { name = "python-multipart" },
     { name = "sqlalchemy", extra = ["asyncio"] },
+    { name = "sqlalchemy-cloudflare-d1", extra = ["async"] },
     { name = "uvicorn", extra = ["standard"] },
 ]
 
@@ -375,6 +376,7 @@ requires-dist = [
     { name = "python-jose", extras = ["cryptography"], specifier = ">=3.3.0" },
     { name = "python-multipart", specifier = ">=0.0.9" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0.35" },
+    { name = "sqlalchemy-cloudflare-d1", extras = ["async"], specifier = ">=0.3.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30.0" },
 ]
 
@@ -838,6 +840,25 @@ wheels = [
 
 [package.optional-dependencies]
 asyncio = [
+    { name = "greenlet" },
+]
+
+[[package]]
+name = "sqlalchemy-cloudflare-d1"
+version = "0.3.5"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "httpx" },
+    { name = "sqlalchemy" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/bc/4d/732bfd974d3479e4940c1302db9895f7c7df6180fa9aedf6955ae0b1d591/sqlalchemy_cloudflare_d1-0.3.5.tar.gz", hash = "sha256:da794fcda9efbd6a4bb773ec1d50fe7185c70c63fbeccb7ab7db7e3cbcd41d2e", size = 404531, upload-time = "2026-01-31T02:42:49.917Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/da/d2/4fd81f5dcaa147960c79d392985c37a0f2a34ba567eaa2183b6146645694/sqlalchemy_cloudflare_d1-0.3.5-py3-none-any.whl", hash = "sha256:12f1029d9ff2f5d99d901eada3aee6b474293038b9708915e5a1342fbd6ffb2b", size = 26840, upload-time = "2026-01-31T02:42:48.029Z" },
+]
+
+[package.optional-dependencies]
+async = [
     { name = "greenlet" },
 ]
 

@@ -1,10 +1,16 @@
 from datetime import datetime
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import ForeignKey, Text, func
+from sqlalchemy import ForeignKey, JSON, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
+from config import settings
 from .base import Base
+
+
+def _embedding_column_type():
+    """Use pgvector on PostgreSQL, JSON on D1/SQLite (no native vector type)."""
+    return Vector(1536) if settings.DB_BACKEND == "postgres" else JSON()
 
 
 class Chunk(Base):
@@ -15,7 +21,7 @@ class Chunk(Base):
     position_end: Mapped[int] = mapped_column(nullable=False)
     summary: Mapped[str] = mapped_column(Text, nullable=False)
     embedding: Mapped[list[float] | None] = mapped_column(
-        Vector(1536),
+        _embedding_column_type(),
         nullable=True,
     )
 
