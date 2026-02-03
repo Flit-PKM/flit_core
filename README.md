@@ -29,7 +29,7 @@ cp .env.example .env
 Edit `.env` and set at least:
 
 - **SECRET_KEY** – at least 32 characters (used for JWT)
-- **Database**: either **PostgreSQL** (`DB_BACKEND=postgres` and `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT`, `DB_NAME`) or **Cloudflare D1** (`DB_BACKEND=d1` and `CF_ACCOUNT_ID`, `CF_API_TOKEN`, `CF_DATABASE_ID`)
+- **Database**: either **PostgreSQL** (`DB_BACKEND=postgres` and either a single `DATABASE_URL` (e.g. for Render) or `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT`, `DB_NAME`) or **Cloudflare D1** (`DB_BACKEND=d1` and `CF_ACCOUNT_ID`, `CF_API_TOKEN`, `CF_DATABASE_ID`)
 
 See [Environment variables](#environment-variables) and [Cloudflare D1](#cloudflare-d1) for all options.
 
@@ -55,7 +55,7 @@ uv run python -m main
 Or with uvicorn directly:
 
 ```bash
-uv run uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+uv run uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000} --reload
 ```
 
 App runs on **http://0.0.0.0:8000**.
@@ -122,6 +122,7 @@ uv run pytest tests -v --cov=main --cov=auth --cov=database --cov=config --cov=e
 |----------|----------|-------------|
 | **SECRET_KEY** | Yes | JWT signing key (min 32 chars). Change from default in production. |
 | **DB_BACKEND** | No | `postgres` (default) or `d1` (Cloudflare D1) |
+| **DATABASE_URL** | When postgres | Full PostgreSQL URL (e.g. for Render). When set, DB_USER, DB_PASSWORD, DB_HOST, DB_PORT, DB_NAME are optional. |
 | **DB_USER** | When postgres | PostgreSQL user |
 | **DB_PASSWORD** | When postgres | PostgreSQL password (min 8 chars) |
 | **DB_HOST** | No | PostgreSQL host (default: `localhost`) |
@@ -177,7 +178,7 @@ Store `CF_API_TOKEN` securely (e.g. secrets manager); never hardcode.
 
 ## Production
 
-- **Run from project root:** `uv run python -m main` or `uv run uvicorn main:app --host 0.0.0.0 --port 8000`. For multiple workers: `uv run uvicorn main:app --host 0.0.0.0 --port 8000 --workers N`, or run behind gunicorn with uvicorn workers.
+- **Run from project root:** `uv run python -m main` or `uv run uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}`. For multiple workers: `uv run uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000} --workers N`, or run behind gunicorn with uvicorn workers.
 - **Environment:** Set `ENVIRONMENT=production`, `LOG_LEVEL=INFO`, a strong unique `SECRET_KEY`, and explicit `CORS_ORIGINS` for your frontend(s). Do not use default or example values for `SECRET_KEY` in production.
 - **Health check:** `GET /health` returns 200 when the app and database are reachable; it runs a lightweight DB probe. Use it for load balancer or orchestrator (e.g. Kubernetes) readiness/liveness probes. On DB failure it returns 503.
 - **Security:** In production, 422 responses do not include the request body, and 500 responses return a generic message; details are logged server-side only.

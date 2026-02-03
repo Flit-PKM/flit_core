@@ -72,7 +72,12 @@ class Settings(BaseSettings):
         description="Database backend: postgres or d1 (Cloudflare D1)",
     )
 
-    # PostgreSQL settings (required when DB_BACKEND=postgres)
+    # PostgreSQL settings (required when DB_BACKEND=postgres unless DATABASE_URL env is set)
+    database_url_from_env: Optional[str] = Field(
+        default=None,
+        description="Full PostgreSQL URL (overrides DB_USER/DB_PASSWORD/DB_HOST/DB_PORT/DB_NAME when set, e.g. for Render)",
+        validation_alias="DATABASE_URL",
+    )
     DB_USER: Optional[str] = Field(default=None, description="Database user (PostgreSQL)")
     DB_PASSWORD: Optional[str] = Field(default=None, description="Database password (PostgreSQL, min 8 chars)")
     DB_HOST: str = Field(default="localhost", description="Database host (PostgreSQL)")
@@ -144,17 +149,18 @@ class Settings(BaseSettings):
                     f"When DB_BACKEND=d1, the following are required: {', '.join(missing)}"
                 )
         else:
-            missing = [k for k, v in [
-                ("DB_USER", self.DB_USER),
-                ("DB_PASSWORD", self.DB_PASSWORD),
-                ("DB_NAME", self.DB_NAME),
-            ] if not v]
-            if missing:
-                raise ValueError(
-                    f"When DB_BACKEND=postgres, the following are required: {', '.join(missing)}"
-                )
-            if self.DB_PASSWORD and len(self.DB_PASSWORD) < 8:
-                raise ValueError("DB_PASSWORD must be at least 8 characters")
+            if not self.database_url_from_env:
+                missing = [k for k, v in [
+                    ("DB_USER", self.DB_USER),
+                    ("DB_PASSWORD", self.DB_PASSWORD),
+                    ("DB_NAME", self.DB_NAME),
+                ] if not v]
+                if missing:
+                    raise ValueError(
+                        f"When DB_BACKEND=postgres, set DATABASE_URL or the following: {', '.join(missing)}"
+                    )
+                if self.DB_PASSWORD and len(self.DB_PASSWORD) < 8:
+                    raise ValueError("DB_PASSWORD must be at least 8 characters")
         return self
 
     @property
@@ -178,10 +184,17 @@ class Settings(BaseSettings):
 
     @property
     def DATABASE_URL(self) -> str:
-        """Generate database URL from connection parameters for the active backend."""
+        """Return database URL for the active backend (from DATABASE_URL env or built from DB_*)."""
         if self.DB_BACKEND == "d1":
             token = quote(self.CF_API_TOKEN or "", safe="")
             return f"cloudflare_d1+async://{self.CF_ACCOUNT_ID}:{token}@{self.CF_DATABASE_ID}"
+        if self.database_url_from_env:
+            url = self.database_url_from_env.strip()
+            if url.startswith("postgres://"):
+                url = "postgresql+asyncpg://" + url[len("postgres://") :]
+            elif url.startswith("postgresql://") and not url.startswith("postgresql+asyncpg://"):
+                url = "postgresql+asyncpg://" + url[len("postgresql://") :]
+            return url
         encoded_pw = quote(self.DB_PASSWORD or "", safe="")
         return f"postgresql+asyncpg://{self.DB_USER}:{encoded_pw}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
 
