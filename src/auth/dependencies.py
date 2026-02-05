@@ -6,8 +6,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from database.session import get_async_session
 from models.user import User
 from auth.jwt import verify_token
-from service.user import get_user, get_user_by_email
+from service.billing import require_active_subscription
 from service.oauth import validate_access_token
+from service.user import get_user, get_user_by_email
 
 security = HTTPBearer()
 
@@ -34,6 +35,14 @@ async def get_sync_oauth_context(
         )
     connected_app_id, user_id = result
     return OAuthContext(user_id=user_id, connected_app_id=connected_app_id)
+
+
+async def require_active_subscription_for_sync(
+    oauth_ctx: OAuthContext = Depends(get_sync_oauth_context),
+    db: AsyncSession = Depends(get_async_session),
+) -> None:
+    """Require an active subscription for sync routes. Raises 403 when billing is configured and user has no active subscription."""
+    await require_active_subscription(db, oauth_ctx.user_id)
 
 
 async def get_current_user(

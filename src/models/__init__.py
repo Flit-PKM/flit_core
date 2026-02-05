@@ -7,6 +7,7 @@ from .note import Note
 from .note_category import NoteCategory
 from .oauth_access_token import OAuthAccessToken
 from .oauth_refresh_token import OAuthRefreshToken
+from .plan_subscription import PlanSubscription
 from .relationship import Relationship
 from .subscription import Subscription
 from .superuser import Superuser

@@ -36,6 +36,7 @@ from models import (  # noqa: F401
     NoteCategory,
     OAuthAccessToken,
     OAuthRefreshToken,
+    PlanSubscription,
     Relationship,
     Subscription,
     Superuser,

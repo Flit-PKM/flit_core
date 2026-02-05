@@ -160,3 +160,6 @@ alembic/versions/*.py
 # Temporary files
 *.tmp
 *.temp
+
+# Webapp build (from separate frontend repo)
+webapp_build/

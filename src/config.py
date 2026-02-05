@@ -66,6 +66,12 @@ class Settings(BaseSettings):
         description="Allowed CORS origins"
     )
 
+    # Webapp (frontend build) - path relative to project root or absolute
+    WEBAPP_BUILD_DIR: str = Field(
+        default="webapp_build",
+        description="Directory containing frontend build (index.html, assets, etc.)",
+    )
+
     # Database backend: postgres (default) or d1 (Cloudflare D1)
     DB_BACKEND: Literal["postgres", "d1"] = Field(
         default="postgres",
@@ -105,6 +111,24 @@ class Settings(BaseSettings):
     TURNSTILE_SECRET: Optional[str] = Field(
         default=None,
         description="Cloudflare Turnstile secret key for subscribe endpoint",
+    )
+
+    # Dodo Payments (optional; required for billing endpoints)
+    DODO_PAYMENTS_API_KEY: Optional[str] = Field(
+        default=None,
+        description="Dodo Payments API key (test or live)",
+    )
+    DODO_PAYMENTS_WEBHOOK_SECRET: Optional[str] = Field(
+        default=None,
+        description="Dodo Payments webhook signing secret for signature verification",
+    )
+    DODO_PAYMENTS_ENVIRONMENT: Optional[Literal["test", "live"]] = Field(
+        default="test",
+        description="Dodo Payments environment: test or live",
+    )
+    DODO_PAYMENTS_SUBSCRIPTION_PRODUCT_ID: Optional[str] = Field(
+        default=None,
+        description="Dodo Payments product ID for the single subscription plan",
     )
 
     @field_validator("SECRET_KEY")

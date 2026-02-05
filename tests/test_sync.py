@@ -1,6 +1,8 @@
-"""Tests for sync: compare (deleted notes), push is_deleted, get_notes includes is_deleted."""
+"""Tests for sync: compare (deleted notes), push is_deleted, get_notes includes is_deleted, subscription gate."""
 
 from __future__ import annotations
+
+from unittest.mock import patch
 
 import pytest
 import pytest_asyncio
@@ -11,8 +13,10 @@ from auth.password import get_password_hash
 from models.chunk import Chunk
 from models.connected_app import ConnectedApp
 from models.note import Note
+from models.plan_subscription import PlanSubscription
 from models.user import User
 from schemas.sync import ChunkVersion, NoteSync, NoteVersion
+from service.billing import SUBSCRIPTION_STATUS_ACTIVE
 from service.oauth import issue_tokens_for_connected_app
 from service.sync import compare_chunks, compare_notes, get_notes_by_ids, sync_notes
 
@@ -316,7 +320,7 @@ async def test_sync_compare_notes_with_oauth_token(
     test_db_session: AsyncSession,
     sync_test_data: dict,
 ):
-    """Sync compare endpoint accepts valid OAuth token and returns 200."""
+    """Sync compare endpoint accepts valid OAuth token and returns 200 when billing is not configured."""
     user = sync_test_data["user"]
     app = sync_test_data["connected_app"]
     access_token, _ = await issue_tokens_for_connected_app(
@@ -324,9 +328,66 @@ async def test_sync_compare_notes_with_oauth_token(
     )
     await test_db_session.commit()
 
-    r = test_client.post(
-        "/sync/compare/notes",
-        json={"notes": []},
-        headers={"Authorization": f"Bearer {access_token.token}"},
+    with patch("service.billing.is_billing_configured", return_value=False):
+        r = test_client.post(
+            "/sync/compare/notes",
+            json={"notes": []},
+            headers={"Authorization": f"Bearer {access_token.token}"},
+        )
+    assert r.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_sync_returns_403_when_billing_configured_and_no_subscription(
+    test_client,
+    test_db_session: AsyncSession,
+    sync_test_data: dict,
+):
+    """Sync endpoints return 403 when billing is configured and user has no active subscription."""
+    user = sync_test_data["user"]
+    app = sync_test_data["connected_app"]
+    access_token, _ = await issue_tokens_for_connected_app(
+        test_db_session, app.id, user.id
     )
+    await test_db_session.commit()
+
+    with patch("service.billing.is_billing_configured", return_value=True):
+        r = test_client.post(
+            "/sync/compare/notes",
+            json={"notes": []},
+            headers={"Authorization": f"Bearer {access_token.token}"},
+        )
+    assert r.status_code == 403
+    assert "active subscription" in r.json().get("detail", "").lower()
+
+
+@pytest.mark.asyncio
+async def test_sync_returns_200_when_billing_configured_and_active_subscription(
+    test_client,
+    test_db_session: AsyncSession,
+    sync_test_data: dict,
+):
+    """Sync endpoints return 200 when billing is configured and user has an active subscription."""
+    user = sync_test_data["user"]
+    app = sync_test_data["connected_app"]
+    plan_sub = PlanSubscription(
+        user_id=user.id,
+        dodo_subscription_id="sub_test_123",
+        dodo_customer_id="cus_test_123",
+        status=SUBSCRIPTION_STATUS_ACTIVE,
+        current_period_end=None,
+    )
+    test_db_session.add(plan_sub)
+    await test_db_session.flush()
+    access_token, _ = await issue_tokens_for_connected_app(
+        test_db_session, app.id, user.id
+    )
+    await test_db_session.commit()
+
+    with patch("service.billing.is_billing_configured", return_value=True):
+        r = test_client.post(
+            "/sync/compare/notes",
+            json={"notes": []},
+            headers={"Authorization": f"Bearer {access_token.token}"},
+        )
     assert r.status_code == 200

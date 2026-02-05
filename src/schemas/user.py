@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any, Literal, Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
@@ -39,11 +39,6 @@ class UserBase(BaseModel):
         "default",
         description="UI color scheme preference: light, dark, or default (follow system)",
         examples=["default", "light", "dark"],
-    )
-    payment_plan_data: Optional[dict[str, Any]] = Field(
-        None,
-        description="Payment plan data (JSON); visible to the user",
-        examples=[None, {"plan": "pro", "expires_at": "2025-12-31"}],
     )
 
 

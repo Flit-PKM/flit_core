@@ -3,7 +3,11 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from auth.dependencies import OAuthContext, get_sync_oauth_context
+from auth.dependencies import (
+    OAuthContext,
+    get_sync_oauth_context,
+    require_active_subscription_for_sync,
+)
 from database.session import get_async_session
 from logging_config import get_logger
 from schemas.sync import (
@@ -61,6 +65,7 @@ logger = get_logger(__name__)
 router = APIRouter(
     prefix="/sync",
     tags=["sync"],
+    dependencies=[Depends(require_active_subscription_for_sync)],
 )
 
 

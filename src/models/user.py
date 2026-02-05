@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import StrEnum
-from typing import Any, Optional
+from typing import Optional
 
-from sqlalchemy import Boolean, JSON, String, func
+from sqlalchemy import Boolean, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base
@@ -38,17 +38,18 @@ class User(Base):
     color_scheme: Mapped[ColorScheme] = mapped_column(
         String(20), nullable=False, default=ColorScheme.DEFAULT
     )
-    payment_plan_data: Mapped[Optional[dict[str, Any]]] = mapped_column(
-        JSON,
-        nullable=True,
-        default=None,
-        comment="JSON data for payment plan tracking; visible to the user",
-    )
     created_at: Mapped[datetime] = mapped_column(
         server_default=func.now(), nullable=False
     )
     updated_at: Mapped[datetime] = mapped_column(
         server_default=func.now(), nullable=False, onupdate=func.now()
+    )
+
+    plan_subscription: Mapped[Optional["PlanSubscription"]] = relationship(
+        "PlanSubscription",
+        back_populates="user",
+        uselist=False,
+        lazy="selectin",
     )
 
     @property

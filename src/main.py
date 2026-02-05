@@ -1,10 +1,14 @@
 import json
 import logging
+from pathlib import Path
 
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.responses import FileResponse
+from starlette.staticfiles import StaticFiles
 import uvicorn
 
 from routes.user import router as user_router, current_user_router
@@ -19,6 +23,7 @@ from routes.note_category import router as note_category_router
 from routes.category import router as category_router
 from routes.relationship import router as relationship_router
 from routes.subscription import router as subscription_router
+from routes.billing import router as billing_router
 from middleware.logging import RequestLoggingMiddleware, log_exceptions_middleware
 from logging_config import setup_logging
 from sqlalchemy import text
@@ -55,6 +60,9 @@ def _format_for_log(obj: object) -> str:
 
 
 logger.info("FastAPI application starting up")
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+webapp_dir = PROJECT_ROOT / settings.WEBAPP_BUILD_DIR
 
 app = FastAPI(
     title="Flit Core",
@@ -146,6 +154,17 @@ async def base_app_exception_handler(request: Request, exc: BaseAppException):
         content={"detail": exc.detail},
     )
 
+
+@app.exception_handler(StarletteHTTPException)
+async def webapp_spa_404_handler(request: Request, exc: StarletteHTTPException):
+    """Serve index.html for 404s under /webapp (SPA client-side routing fallback)."""
+    if exc.status_code == 404 and request.url.path.startswith("/webapp"):
+        index_path = webapp_dir / "index.html"
+        if index_path.exists():
+            return FileResponse(str(index_path))
+    raise exc
+
+
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
@@ -172,6 +191,17 @@ app.include_router(note_category_router)
 app.include_router(category_router)
 app.include_router(relationship_router)
 app.include_router(subscription_router)
+app.include_router(billing_router)
+
+# Mount webapp at /webapp (SPA with client-side routing fallback)
+if webapp_dir.is_dir():
+    app.mount(
+        "/webapp",
+        StaticFiles(directory=str(webapp_dir), html=True),
+        name="frontend",
+    )
+else:
+    logger.info("Webapp build dir %s not found; /webapp route disabled", webapp_dir)
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=settings.PORT)
