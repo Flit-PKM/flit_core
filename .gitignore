@@ -149,11 +149,6 @@ Thumbs.db
 *.sqlite
 *.sqlite3
 
-# Alembic
-alembic/versions/*.py
-# Keep alembic.ini and versions directory, but ignore generated migrations
-!alembic/versions/
-
 # uv
 .uv/
 
