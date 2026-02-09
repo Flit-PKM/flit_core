@@ -55,7 +55,7 @@ def _get_dodo_webhook_client(webhook_secret: str):
     )
 
 
-async def unwrap_webhook(
+def unwrap_webhook(
     body: bytes,
     headers: dict[str, str],
     webhook_secret: str,
@@ -65,17 +65,21 @@ async def unwrap_webhook(
     Raises on invalid signature or bad payload.
     """
     client = _get_dodo_webhook_client(webhook_secret)
-    return await asyncio.to_thread(client.webhooks.unwrap, body, headers)
+    payload_str = body.decode("utf-8")
+    result = client.webhooks.unwrap(payload_str, headers=headers)
+    if hasattr(result, "model_dump"):
+        return result.model_dump()
+    return dict(result) if result is not None else {}
 
 
-async def unsafe_unwrap_webhook(body: bytes) -> Any:
+def unsafe_unwrap_webhook(body: bytes) -> Any:
     """
     Parse webhook payload without signature verification (Dodo SDK unsafe_unwrap).
     Use only for diagnostic logging when verification fails.
     """
     client = _get_dodo_client()
     payload_str = body.decode("utf-8")
-    return await asyncio.to_thread(client.webhooks.unsafe_unwrap, payload_str)
+    return client.webhooks.unsafe_unwrap(payload_str)
 
 
 def _webhook_event_log_summary(event: Any) -> dict[str, Any]:

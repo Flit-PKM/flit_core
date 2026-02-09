@@ -251,7 +251,7 @@ async def dodo_webhook(
     }
 
     try:
-        event = await unwrap_webhook(raw_body, headers, secret)
+        event = unwrap_webhook(raw_body, headers, secret)
     except Exception as e:
         logger.warning(
             "Dodo webhook signature verification failed: %s",
@@ -259,7 +259,7 @@ async def dodo_webhook(
             exc_info=True,
         )
         try:
-            parsed = await unsafe_unwrap_webhook(raw_body)
+            parsed = unsafe_unwrap_webhook(raw_body)
             summary = _webhook_event_log_summary(parsed)
             logger.info(
                 "Dodo webhook payload (unsafe_unwrap) for diagnostics: %s",
