@@ -1,6 +1,5 @@
 """Billing routes: Dodo Payments checkout and webhooks."""
 
-import json
 import logging
 from typing import Any, List, Literal, Optional
 
@@ -23,7 +22,7 @@ from service.billing import (
     is_checkout_configured,
     is_webhook_duplicate,
     mark_webhook_processed,
-    verify_webhook_signature,
+    unwrap_webhook,
 )
 
 logger = logging.getLogger(__name__)
@@ -249,14 +248,10 @@ async def dodo_webhook(
         "webhook-timestamp": request.headers.get("webhook-timestamp", ""),
     }
 
-    if not verify_webhook_signature(raw_body, headers, secret):
-        logger.warning(
-            "Dodo webhook signature verification failed; webhook_id_present=%s webhook_signature_present=%s webhook_timestamp_present=%s body_len=%s",
-            bool((headers.get("webhook-id") or "").strip()),
-            bool((headers.get("webhook-signature") or "").strip()),
-            bool((headers.get("webhook-timestamp") or "").strip()),
-            len(raw_body),
-        )
+    try:
+        event = await unwrap_webhook(raw_body, headers, secret)
+    except Exception:
+        logger.warning("Dodo webhook signature verification failed")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid signature",
@@ -265,15 +260,6 @@ async def dodo_webhook(
     webhook_id = headers["webhook-id"]
     if is_webhook_duplicate(webhook_id):
         return {"received": True}
-
-    try:
-        event = json.loads(raw_body.decode("utf-8"))
-    except json.JSONDecodeError as e:
-        logger.warning("Dodo webhook invalid JSON: %s", e)
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid JSON",
-        )
 
     mark_webhook_processed(webhook_id)
     await handle_webhook_event(db, event)
