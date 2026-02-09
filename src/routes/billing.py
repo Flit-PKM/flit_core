@@ -13,6 +13,8 @@ from config import settings
 from database.session import get_async_session
 from models.user import User
 from service.billing import (
+    BillingCompleteError,
+    complete_subscription,
     create_checkout_session,
     get_plans,
     get_subscription_for_user,
@@ -46,6 +48,21 @@ class CheckoutResponse(BaseModel):
 
     session_id: str
     checkout_url: str
+
+
+class BillingCompleteRequest(BaseModel):
+    """Request body for POST /billing/complete: frontend reports subscription success."""
+
+    subscription_id: str
+    status: str
+
+
+class BillingCompleteResponse(BaseModel):
+    """Response for POST /billing/complete."""
+
+    ok: bool = True
+    subscription_id: Optional[str] = None
+    status: Optional[str] = None
 
 
 class SubscriptionStatusResponse(BaseModel):
@@ -167,6 +184,28 @@ async def create_checkout(
         )
 
 
+@router.post("/complete", response_model=BillingCompleteResponse)
+async def billing_complete(
+    body: BillingCompleteRequest,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_async_session),
+) -> BillingCompleteResponse:
+    """
+    Receive frontend notification that a subscription has succeeded.
+    Verifies subscription_id and status with Dodo, ensures it belongs to the current user, and upserts PlanSubscription.
+    """
+    try:
+        await complete_subscription(
+            db=db,
+            user_id=current_user.id,
+            subscription_id=body.subscription_id,
+            status=body.status,
+        )
+    except BillingCompleteError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail) from e
+    return BillingCompleteResponse(ok=True, subscription_id=body.subscription_id, status=body.status)
+
+
 @router.get("/subscription", response_model=SubscriptionStatusResponse)
 async def get_subscription(
     current_user: User = Depends(get_current_active_user),
@@ -211,7 +250,13 @@ async def dodo_webhook(
     }
 
     if not verify_webhook_signature(raw_body, headers, secret):
-        logger.warning("Dodo webhook signature verification failed")
+        logger.warning(
+            "Dodo webhook signature verification failed; webhook_id_present=%s webhook_signature_present=%s webhook_timestamp_present=%s body_len=%s",
+            bool((headers.get("webhook-id") or "").strip()),
+            bool((headers.get("webhook-signature") or "").strip()),
+            bool((headers.get("webhook-timestamp") or "").strip()),
+            len(raw_body),
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid signature",

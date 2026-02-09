@@ -207,3 +207,212 @@ async def test_handle_webhook_subscription_event_sets_product_id(
     assert row is not None
     assert row.product_id == "prod_monthly_core_ai_enc"
     assert row.user_id == user.id
+
+
+def _make_dodo_subscription(
+    subscription_id: str = "sub_123",
+    status: str = "active",
+    metadata: dict | None = None,
+    customer_id: str = "cust_abc",
+    product_id: str = "prod_monthly_core_ai",
+):
+    """Build a minimal Dodo subscription-like object for subscriptions.retrieve()."""
+    sub = MagicMock()
+    sub.subscription_id = subscription_id
+    sub.status = status
+    sub.metadata = metadata or {}
+    sub.customer_id = customer_id
+    sub.customer = MagicMock()
+    sub.customer.customer_id = customer_id
+    sub.customer.id = customer_id
+    sub.product_id = product_id
+    sub.next_billing_date = None
+    return sub
+
+
+@pytest.mark.asyncio
+async def test_complete_subscription_creates_plan_subscription(
+    test_db_session: AsyncSession,
+    sample_user_data: dict,
+):
+    """complete_subscription creates PlanSubscription when Dodo returns matching subscription and metadata.user_id."""
+    from auth.password import get_password_hash
+    from service.user import create_user
+
+    data = sample_user_data.copy()
+    data["password_hash"] = get_password_hash(data.pop("password"))
+    user = await create_user(test_db_session, data)
+    await test_db_session.commit()
+
+    mock_sub = _make_dodo_subscription(
+        subscription_id="sub_new_123",
+        status="active",
+        metadata={"user_id": str(user.id)},
+        customer_id="cust_dodo_1",
+        product_id="prod_monthly_core_ai_enc",
+    )
+    mock_client = MagicMock()
+    mock_client.subscriptions.retrieve.return_value = mock_sub
+
+    with (
+        patch("service.billing.is_checkout_configured", return_value=True),
+        patch("service.billing._get_dodo_client", return_value=mock_client),
+    ):
+        await billing.complete_subscription(
+            db=test_db_session,
+            user_id=user.id,
+            subscription_id="sub_new_123",
+            status="active",
+        )
+    await test_db_session.commit()
+
+    result = await test_db_session.execute(
+        select(PlanSubscription).where(PlanSubscription.dodo_subscription_id == "sub_new_123")
+    )
+    row = result.scalar_one_or_none()
+    assert row is not None
+    assert row.user_id == user.id
+    assert row.status == "active"
+    assert row.dodo_customer_id == "cust_dodo_1"
+    assert row.product_id == "prod_monthly_core_ai_enc"
+    mock_client.subscriptions.retrieve.assert_called_once_with("sub_new_123")
+
+
+@pytest.mark.asyncio
+async def test_complete_subscription_updates_existing_plan_subscription(
+    test_db_session: AsyncSession,
+    sample_user_data: dict,
+):
+    """complete_subscription updates existing PlanSubscription when row already exists."""
+    from auth.password import get_password_hash
+    from service.user import create_user
+
+    data = sample_user_data.copy()
+    data["password_hash"] = get_password_hash(data.pop("password"))
+    user = await create_user(test_db_session, data)
+    await test_db_session.commit()
+
+    existing = PlanSubscription(
+        user_id=user.id,
+        dodo_subscription_id="sub_existing",
+        dodo_customer_id="cust_old",
+        status="pending",
+        product_id=None,
+    )
+    test_db_session.add(existing)
+    await test_db_session.commit()
+
+    mock_sub = _make_dodo_subscription(
+        subscription_id="sub_existing",
+        status="active",
+        metadata={"user_id": str(user.id)},
+        customer_id="cust_new",
+        product_id="prod_annual_core_ai",
+    )
+    mock_client = MagicMock()
+    mock_client.subscriptions.retrieve.return_value = mock_sub
+
+    with (
+        patch("service.billing.is_checkout_configured", return_value=True),
+        patch("service.billing._get_dodo_client", return_value=mock_client),
+    ):
+        await billing.complete_subscription(
+            db=test_db_session,
+            user_id=user.id,
+            subscription_id="sub_existing",
+            status="active",
+        )
+    await test_db_session.commit()
+
+    result = await test_db_session.execute(
+        select(PlanSubscription).where(PlanSubscription.dodo_subscription_id == "sub_existing")
+    )
+    row = result.scalar_one_or_none()
+    assert row is not None
+    assert row.user_id == user.id
+    assert row.status == "active"
+    assert row.dodo_customer_id == "cust_new"
+    assert row.product_id == "prod_annual_core_ai"
+
+
+@pytest.mark.asyncio
+async def test_complete_subscription_not_found_raises():
+    """complete_subscription raises BillingCompleteError 404 when Dodo returns not found."""
+    class DodoNotFoundError(Exception):
+        pass
+    DodoNotFoundError.__module__ = "dodopayments.errors"
+    DodoNotFoundError.__name__ = "NotFoundError"
+
+    mock_client = MagicMock()
+    mock_client.subscriptions.retrieve.side_effect = DodoNotFoundError("Subscription not found")
+
+    with (
+        patch("service.billing.is_checkout_configured", return_value=True),
+        patch("service.billing._get_dodo_client", return_value=mock_client),
+    ):
+        with pytest.raises(billing.BillingCompleteError) as exc_info:
+            await billing.complete_subscription(
+                db=MagicMock(),
+                user_id=1,
+                subscription_id="sub_nonexistent",
+                status="active",
+            )
+    assert exc_info.value.status_code == 404
+    assert "not found" in exc_info.value.detail.lower()
+
+
+@pytest.mark.asyncio
+async def test_complete_subscription_status_mismatch_raises(
+    test_db_session: AsyncSession,
+):
+    """complete_subscription raises BillingCompleteError 400 when Dodo status does not match request."""
+    mock_sub = _make_dodo_subscription(
+        subscription_id="sub_123",
+        status="pending",
+        metadata={"user_id": "1"},
+    )
+    mock_client = MagicMock()
+    mock_client.subscriptions.retrieve.return_value = mock_sub
+
+    with (
+        patch("service.billing.is_checkout_configured", return_value=True),
+        patch("service.billing._get_dodo_client", return_value=mock_client),
+    ):
+        with pytest.raises(billing.BillingCompleteError) as exc_info:
+            await billing.complete_subscription(
+                db=test_db_session,
+                user_id=1,
+                subscription_id="sub_123",
+                status="active",
+            )
+    assert exc_info.value.status_code == 400
+    assert "status" in exc_info.value.detail.lower()
+
+
+@pytest.mark.asyncio
+async def test_complete_subscription_wrong_user_raises_403(
+    test_db_session: AsyncSession,
+):
+    """complete_subscription raises BillingCompleteError 403 when metadata.user_id != current user."""
+    mock_sub = _make_dodo_subscription(
+        subscription_id="sub_123",
+        status="active",
+        metadata={"user_id": "999"},
+        customer_id="cust_1",
+    )
+    mock_client = MagicMock()
+    mock_client.subscriptions.retrieve.return_value = mock_sub
+
+    with (
+        patch("service.billing.is_checkout_configured", return_value=True),
+        patch("service.billing._get_dodo_client", return_value=mock_client),
+    ):
+        with pytest.raises(billing.BillingCompleteError) as exc_info:
+            await billing.complete_subscription(
+                db=test_db_session,
+                user_id=1,
+                subscription_id="sub_123",
+                status="active",
+            )
+    assert exc_info.value.status_code == 403
+    assert "does not belong" in exc_info.value.detail.lower()

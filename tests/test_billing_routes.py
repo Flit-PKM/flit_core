@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -230,3 +230,51 @@ async def test_checkout_disallowed_product_id_returns_400(test_client):
     assert response.status_code == 400
     assert "not an allowed plan" in response.json().get("detail", "")
     mock_client.checkout_sessions.create.assert_not_called()
+
+
+# ---- POST /billing/complete ----
+@pytest.mark.asyncio
+async def test_billing_complete_requires_auth(test_client):
+    """POST /billing/complete without auth returns 401."""
+    response = test_client.post(
+        "/billing/complete",
+        json={"subscription_id": "sub_123", "status": "active"},
+    )
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_billing_complete_missing_body_returns_422(test_client):
+    """POST /billing/complete without body or missing fields returns 422."""
+    _override_checkout_auth()
+    try:
+        response = test_client.post("/billing/complete", json={})
+    finally:
+        _clear_checkout_auth()
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_billing_complete_success_returns_200(test_client):
+    """POST /billing/complete with valid body and auth returns 200 and ok/subscription_id/status."""
+    _override_checkout_auth(user_id=1)
+    try:
+        mock_complete = AsyncMock(return_value=None)
+        with patch("routes.billing.complete_subscription", mock_complete):
+            with patch("routes.billing.is_checkout_configured", return_value=True):
+                response = test_client.post(
+                    "/billing/complete",
+                    json={"subscription_id": "sub_abc", "status": "active"},
+                )
+    finally:
+        _clear_checkout_auth()
+    assert response.status_code == 200
+    data = response.json()
+    assert data["ok"] is True
+    assert data["subscription_id"] == "sub_abc"
+    assert data["status"] == "active"
+    mock_complete.assert_called_once()
+    call_kwargs = mock_complete.call_args.kwargs
+    assert call_kwargs["user_id"] == 1
+    assert call_kwargs["subscription_id"] == "sub_abc"
+    assert call_kwargs["status"] == "active"

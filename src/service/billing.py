@@ -297,6 +297,121 @@ async def create_checkout_session(
     return await asyncio.to_thread(_create)
 
 
+class BillingCompleteError(Exception):
+    """Raised by complete_subscription with (status_code, detail)."""
+
+    def __init__(self, status_code: int, detail: str):
+        self.status_code = status_code
+        self.detail = detail
+        super().__init__(detail)
+
+
+async def complete_subscription(
+    db: AsyncSession,
+    user_id: int,
+    subscription_id: str,
+    status: str,
+) -> None:
+    """
+    Verify subscription with Dodo, ensure it belongs to the current user, and upsert PlanSubscription.
+    Raises BillingCompleteError with (status_code, detail) for 400, 403, 404, 502.
+    """
+    if not is_checkout_configured():
+        raise BillingCompleteError(503, "Billing is not configured")
+    if not subscription_id or not subscription_id.strip():
+        raise BillingCompleteError(400, "subscription_id is required and cannot be empty")
+    if not status or not status.strip():
+        raise BillingCompleteError(400, "status is required and cannot be empty")
+    subscription_id = subscription_id.strip()
+    status = status.strip()
+
+    def _retrieve() -> Any:
+        client = _get_dodo_client()
+        return client.subscriptions.retrieve(subscription_id)
+
+    try:
+        sub = await asyncio.to_thread(_retrieve)
+    except Exception as e:
+        err_module = getattr(e, "__class__", None).__module__
+        err_name = type(e).__name__
+        if err_module and "dodopayments" in err_module and err_name == "NotFoundError":
+            raise BillingCompleteError(404, "Subscription not found") from e
+        logger.exception("Dodo API error retrieving subscription %s: %s", subscription_id, e)
+        raise BillingCompleteError(502, "Failed to verify subscription with payment provider") from e
+
+    dodo_status = getattr(sub, "status", None) or getattr(sub, "subscription_status", None)
+    if not dodo_status:
+        dodo_status = ""
+    dodo_status_str = str(dodo_status).strip()
+    if dodo_status_str.lower() != status.strip().lower():
+        raise BillingCompleteError(
+            400,
+            "Subscription status does not match",
+        )
+
+    metadata = getattr(sub, "metadata", None) or {}
+    if isinstance(metadata, dict):
+        meta_user_id = metadata.get("user_id")
+    else:
+        meta_user_id = None
+    if meta_user_id is not None:
+        meta_user_id = str(meta_user_id).strip()
+    if meta_user_id != str(user_id):
+        raise BillingCompleteError(
+            403,
+            "Subscription does not belong to this user",
+        )
+
+    customer_id = ""
+    if hasattr(sub, "customer") and sub.customer is not None:
+        c = sub.customer
+        customer_id = getattr(c, "customer_id", None) or getattr(c, "id", None) or ""
+    if hasattr(sub, "customer_id") and sub.customer_id:
+        customer_id = str(sub.customer_id)
+    customer_id = (customer_id or "").strip()
+
+    product_id = None
+    if hasattr(sub, "product_id") and sub.product_id:
+        product_id = str(sub.product_id).strip() or None
+
+    current_period_end = None
+    if hasattr(sub, "next_billing_date") and sub.next_billing_date:
+        raw = sub.next_billing_date
+        from datetime import datetime
+        if isinstance(raw, str):
+            try:
+                current_period_end = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            except ValueError:
+                pass
+        elif hasattr(raw, "isoformat"):
+            current_period_end = raw
+
+    result = await db.execute(
+        select(PlanSubscription).where(
+            PlanSubscription.dodo_subscription_id == subscription_id
+        )
+    )
+    row = result.scalar_one_or_none()
+    if row:
+        row.status = dodo_status_str
+        if current_period_end is not None:
+            row.current_period_end = current_period_end
+        row.dodo_customer_id = customer_id or row.dodo_customer_id
+        if product_id is not None:
+            row.product_id = product_id
+    else:
+        row = PlanSubscription(
+            user_id=user_id,
+            dodo_subscription_id=subscription_id,
+            dodo_customer_id=customer_id or "",
+            status=dodo_status_str,
+            product_id=product_id,
+            current_period_end=current_period_end,
+        )
+        db.add(row)
+    logger.info("Completed subscription %s for user_id=%s status=%s", subscription_id, user_id, dodo_status_str)
+
+
 async def get_subscription_for_user(
     db: AsyncSession,
     user_id: int,
