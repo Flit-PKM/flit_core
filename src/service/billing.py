@@ -452,12 +452,22 @@ def verify_webhook_signature(
     signature = headers.get("webhook-signature")
     timestamp = headers.get("webhook-timestamp")
     if not webhook_id or not signature or not timestamp:
+        logger.warning(
+            "Dodo webhook signature verification failed (detail): missing_headers webhook_id_present=%s webhook_signature_present=%s webhook_timestamp_present=%s",
+            bool((webhook_id or "").strip()),
+            bool((signature or "").strip()),
+            bool((timestamp or "").strip()),
+        )
         return False
     if isinstance(payload_body, str):
         payload_body = payload_body.encode("utf-8")
     elif isinstance(payload_body, bytes):
         pass
     else:
+        logger.warning(
+            "Dodo webhook signature verification failed (detail): invalid_body_type type=%s",
+            type(payload_body).__name__,
+        )
         return False
 
     signed_content = f"{webhook_id}.{timestamp}.".encode("utf-8") + payload_body
@@ -468,11 +478,31 @@ def verify_webhook_signature(
     ).hexdigest()
 
     # Signature header can be "v1,hexsig" or multiple "v1,sig1 v1,sig2"
-    for part in signature.split():
+    parts = signature.split()
+    signature_has_v1 = any(p.strip().startswith("v1,") for p in parts)
+    received_sig_len: int | None = None
+    received_sig_prefix: str = ""
+    for part in parts:
         if "," in part:
             prefix, sig = part.split(",", 1)
-            if prefix.strip() == "v1" and hmac.compare_digest(sig.strip(), expected):
-                return True
+            sig = sig.strip()
+            if prefix.strip() == "v1":
+                if received_sig_len is None:
+                    received_sig_len = len(sig)
+                    received_sig_prefix = sig[:8] if len(sig) >= 8 else sig
+                if hmac.compare_digest(sig, expected):
+                    return True
+
+    logger.warning(
+        "Dodo webhook signature verification failed (detail): webhook_timestamp=%s signed_content_len=%s signature_parts_count=%s signature_has_v1=%s received_sig_len=%s expected_sig_len=64 expected_sig_prefix=%s received_sig_prefix=%s",
+        timestamp,
+        len(signed_content),
+        len(parts),
+        signature_has_v1,
+        received_sig_len,
+        expected[:8],
+        received_sig_prefix,
+    )
     return False
 
 
