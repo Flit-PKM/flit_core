@@ -22,7 +22,9 @@ from service.billing import (
     is_checkout_configured,
     is_webhook_duplicate,
     mark_webhook_processed,
+    unsafe_unwrap_webhook,
     unwrap_webhook,
+    _webhook_event_log_summary,
 )
 
 logger = logging.getLogger(__name__)
@@ -250,8 +252,25 @@ async def dodo_webhook(
 
     try:
         event = await unwrap_webhook(raw_body, headers, secret)
-    except Exception:
-        logger.warning("Dodo webhook signature verification failed")
+    except Exception as e:
+        logger.warning(
+            "Dodo webhook signature verification failed: %s",
+            e,
+            exc_info=True,
+        )
+        try:
+            parsed = await unsafe_unwrap_webhook(raw_body)
+            summary = _webhook_event_log_summary(parsed)
+            logger.info(
+                "Dodo webhook payload (unsafe_unwrap) for diagnostics: %s",
+                summary,
+            )
+        except Exception as parse_err:
+            logger.warning(
+                "Dodo webhook unsafe_unwrap also failed: %s",
+                parse_err,
+                exc_info=True,
+            )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid signature",

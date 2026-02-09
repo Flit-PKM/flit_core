@@ -68,6 +68,36 @@ async def unwrap_webhook(
     return await asyncio.to_thread(client.webhooks.unwrap, body, headers)
 
 
+async def unsafe_unwrap_webhook(body: bytes) -> Any:
+    """
+    Parse webhook payload without signature verification (Dodo SDK unsafe_unwrap).
+    Use only for diagnostic logging when verification fails.
+    """
+    client = _get_dodo_client()
+    payload_str = body.decode("utf-8")
+    return await asyncio.to_thread(client.webhooks.unsafe_unwrap, payload_str)
+
+
+def _webhook_event_log_summary(event: Any) -> dict[str, Any]:
+    """Build a minimal, safe dict from a webhook event for logging (no PII)."""
+    summary: dict[str, Any] = {}
+    if hasattr(event, "type"):
+        summary["type"] = event.type
+    if hasattr(event, "timestamp"):
+        summary["timestamp"] = str(event.timestamp)
+    if hasattr(event, "business_id"):
+        summary["business_id"] = event.business_id
+    if hasattr(event, "data") and event.data is not None:
+        if hasattr(event.data, "model_dump"):
+            data_keys = list(event.data.model_dump().keys()) if event.data else []
+        elif hasattr(event.data, "keys"):
+            data_keys = list(event.data.keys())
+        else:
+            data_keys = []
+        summary["data_keys"] = data_keys
+    return summary
+
+
 def is_billing_configured() -> bool:
     """True if Dodo Payments API key and at least one plan product ID are set (sync gating, etc.)."""
     if not settings.DODO_PAYMENTS_API_KEY:
