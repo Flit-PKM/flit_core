@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from enum import StrEnum
 
-from sqlalchemy import Enum, ForeignKey, String, Text, func
+from sqlalchemy import Enum, ForeignKey, SmallInteger, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .base import Base
@@ -39,3 +39,4 @@ class Note(Base):
     source_id: Mapped[int | None] = mapped_column(
         ForeignKey("connected_apps.id"), index=True, nullable=True
     )
+    encryption_version: Mapped[int | None] = mapped_column(SmallInteger, nullable=True, default=None)

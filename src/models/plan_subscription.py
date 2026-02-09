@@ -38,6 +38,10 @@ class PlanSubscription(Base):
         String(64),
         nullable=False,
     )
+    product_id: Mapped[Optional[str]] = mapped_column(
+        String(255),
+        nullable=True,
+    )
     current_period_end: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True),
         nullable=True,

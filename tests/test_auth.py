@@ -1,10 +1,13 @@
 """Tests for authentication flows."""
 
+from datetime import datetime, timezone
+
 import pytest
 from fastapi import status
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from models.plan_subscription import PlanSubscription
 from models.user import User
 from service.user import create_user
 from auth.password import get_password_hash
@@ -192,5 +195,73 @@ async def test_invalid_token(
         "/users/",
         headers={"Authorization": "Bearer invalid_token"},
     )
-    
+
     assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+
+def _login(test_client, email: str, password: str) -> str:
+    """Login and return access token."""
+    r = test_client.post(
+        "/auth/login-json",
+        json={"email": email, "password": password},
+    )
+    assert r.status_code == status.HTTP_200_OK
+    return r.json()["access_token"]
+
+
+@pytest.mark.asyncio
+async def test_get_user_includes_subscription_null_when_no_subscription(
+    test_client,
+    test_db_session: AsyncSession,
+    sample_user_data: dict,
+):
+    """GET /user response includes subscription: null when user has no plan subscription."""
+    user_data = sample_user_data.copy()
+    password = user_data.pop("password")
+    user_data["password_hash"] = get_password_hash(password)
+    await create_user(test_db_session, user_data)
+    await test_db_session.commit()
+
+    token = _login(test_client, sample_user_data["email"], password)
+    response = test_client.get("/user/", headers={"Authorization": f"Bearer {token}"})
+
+    assert response.status_code == status.HTTP_200_OK
+    data = response.json()
+    assert "subscription" in data
+    assert data["subscription"] is None
+
+
+@pytest.mark.asyncio
+async def test_get_user_includes_subscription_when_user_has_plan_subscription(
+    test_client,
+    test_db_session: AsyncSession,
+    sample_user_data: dict,
+):
+    """GET /user response includes subscription details when user has a plan subscription."""
+    user_data = sample_user_data.copy()
+    password = user_data.pop("password")
+    user_data["password_hash"] = get_password_hash(password)
+    user = await create_user(test_db_session, user_data)
+    await test_db_session.flush()
+
+    sub = PlanSubscription(
+        user_id=user.id,
+        dodo_subscription_id="sub_dodo_123",
+        dodo_customer_id="cust_456",
+        status="active",
+        current_period_end=datetime(2025, 6, 15, 12, 0, 0, tzinfo=timezone.utc),
+    )
+    test_db_session.add(sub)
+    await test_db_session.commit()
+
+    token = _login(test_client, sample_user_data["email"], password)
+    response = test_client.get("/user/", headers={"Authorization": f"Bearer {token}"})
+
+    assert response.status_code == status.HTTP_200_OK
+    data = response.json()
+    assert "subscription" in data
+    assert data["subscription"] is not None
+    assert data["subscription"]["status"] == "active"
+    assert data["subscription"]["dodo_subscription_id"] == "sub_dodo_123"
+    assert "current_period_end" in data["subscription"]
+    assert "2025-06-15" in data["subscription"]["current_period_end"]

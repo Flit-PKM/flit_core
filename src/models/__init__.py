@@ -12,3 +12,4 @@ from .relationship import Relationship
 from .subscription import Subscription
 from .superuser import Superuser
 from .user import User
+from .user_encryption_key import UserEncryptionKey

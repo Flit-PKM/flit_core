@@ -2,7 +2,7 @@
 
 import json
 import logging
-from typing import Optional
+from typing import Any, List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
@@ -14,9 +14,11 @@ from database.session import get_async_session
 from models.user import User
 from service.billing import (
     create_checkout_session,
+    get_plans,
     get_subscription_for_user,
     handle_webhook_event,
     is_billing_configured,
+    is_checkout_configured,
     is_webhook_duplicate,
     mark_webhook_processed,
     verify_webhook_signature,
@@ -31,7 +33,10 @@ router = APIRouter(
 
 
 class CheckoutCreate(BaseModel):
-    """Optional return URL after checkout."""
+    """Request to create a checkout session for a chosen plan (one of the 4 bundle products)."""
+
+    product_id: str
+    """Dodo product ID for the plan (from GET /billing/plans). One of the 4 Core+AI (with or without Encryption) products."""
 
     return_url: Optional[str] = None
 
@@ -51,13 +56,84 @@ class SubscriptionStatusResponse(BaseModel):
     dodo_subscription_id: Optional[str] = None
 
 
+class AddonDetailResponse(BaseModel):
+    """Addon details from Dodo Payments for display on the frontend."""
+
+    id: str
+    name: Optional[str] = None
+    description: Optional[str] = None
+    image: Optional[str] = None
+    price: Optional[int] = None
+    currency: Optional[str] = None
+    tax_category: str = ""
+
+
+class MeterDetailResponse(BaseModel):
+    """Meter details from Dodo Payments for display on the frontend."""
+
+    id: str
+    name: Optional[str] = None
+    description: Optional[str] = None
+    event_name: Optional[str] = None
+    aggregation: dict[str, Any] = {}
+    measurement_unit: Optional[str] = None
+
+
+PlanTypeLiteral = Literal[
+    "monthly_core_ai",
+    "monthly_core_ai_encryption",
+    "annual_core_ai",
+    "annual_core_ai_encryption",
+]
+
+
+class PlanDetailResponse(BaseModel):
+    """Plan/product details from Dodo Payments for display on the frontend."""
+
+    product_id: str
+    name: Optional[str] = None
+    description: Optional[str] = None
+    image: Optional[str] = None
+    is_recurring: bool = False
+    price: dict[str, Any] = {}
+    metadata: dict[str, str] = {}
+    tax_category: str = ""
+    addons: List[AddonDetailResponse] = []
+    meters: List[MeterDetailResponse] = []
+    plan_type: Optional[PlanTypeLiteral] = None
+    show_discounted_badge: bool = False
+    includes_encryption: bool = False
+
+
+@router.get("/plans", response_model=List[PlanDetailResponse])
+async def list_plans() -> List[PlanDetailResponse]:
+    """
+    Return available subscription plans with details (name, description, price, etc.) from Dodo Payments.
+    Results are cached in-memory for 5 minutes. Returns empty list when billing is not configured.
+    """
+    try:
+        plans = await get_plans()
+    except Exception as e:
+        logger.exception("Failed to load plans: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Failed to load plans",
+        ) from e
+    return [PlanDetailResponse(**p) for p in plans]
+
+
 @router.post("/checkout", response_model=CheckoutResponse)
 async def create_checkout(
     body: CheckoutCreate,
     current_user: User = Depends(get_current_active_user),
 ) -> CheckoutResponse:
     """Create a Dodo Checkout Session for the subscription plan. Returns URL to redirect the user."""
-    if not is_billing_configured():
+    if not body.product_id or not body.product_id.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="product_id is required and cannot be empty",
+        )
+    if not is_checkout_configured():
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Billing is not configured",
@@ -65,6 +141,7 @@ async def create_checkout(
     try:
         result = await create_checkout_session(
             user_id=current_user.id,
+            product_id=body.product_id.strip(),
             return_url=body.return_url,
         )
         return CheckoutResponse(
@@ -72,10 +149,16 @@ async def create_checkout(
             checkout_url=result["checkout_url"],
         )
     except ValueError as e:
+        msg = str(e)
+        if "not an allowed plan" in msg:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=msg,
+            ) from e
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=str(e),
-        )
+            detail=msg,
+        ) from e
     except Exception as e:
         logger.exception("Checkout session creation failed: %s", e)
         raise HTTPException(

@@ -4,7 +4,8 @@ from fastapi import APIRouter, Depends, HTTPException, status, Response, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database.session import get_async_session
-from schemas.user import UserCreate, UserUpdate, UserRead
+from schemas.user import UserCreate, UserUpdate, UserRead, UserSubscriptionRead
+from service.billing import get_subscription_for_user
 from service.user import (
     create_user,
     get_user,
@@ -62,13 +63,24 @@ async def get_current_user_endpoint(
     )
     # Refresh user from database to ensure we have the latest data
     user = await get_user(db, current_user.id)
-    
+
     if not user:
         logger.warning(f"GET /user - User {current_user.id} not found in database")
         raise NotFoundError("User not found")
-    
+
+    sub = await get_subscription_for_user(db, current_user.id)
+    subscription_data = (
+        UserSubscriptionRead(
+            status=sub.status,
+            current_period_end=sub.current_period_end.isoformat() if sub.current_period_end else None,
+            dodo_subscription_id=sub.dodo_subscription_id,
+        )
+        if sub
+        else None
+    )
+    base = UserRead.model_validate(user)
     logger.info(f"GET /user - User {current_user.id} fetched successfully")
-    return user
+    return base.model_copy(update={"subscription": subscription_data})
 
 @router.get("/{user_id}", response_model=UserRead)
 async def get_user_endpoint(
@@ -83,13 +95,24 @@ async def get_user_endpoint(
         f"Path: {request.url.path}, Query: {request.url.query}"
     )
     user = await get_user(db, user_id)
-    
+
     if not user:
         logger.warning(f"GET /users/{user_id} - User {user_id} not found")
         raise NotFoundError("User not found")
-    
+
+    sub = await get_subscription_for_user(db, user_id)
+    subscription_data = (
+        UserSubscriptionRead(
+            status=sub.status,
+            current_period_end=sub.current_period_end.isoformat() if sub.current_period_end else None,
+            dodo_subscription_id=sub.dodo_subscription_id,
+        )
+        if sub
+        else None
+    )
+    base = UserRead.model_validate(user)
     logger.info(f"GET /users/{user_id} - User {user_id} fetched successfully by superuser {current_user.id}")
-    return user
+    return base.model_copy(update={"subscription": subscription_data})
 
 @current_user_router.patch("/", response_model=UserRead)
 async def update_current_user_endpoint(

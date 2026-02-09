@@ -1,7 +1,7 @@
 from datetime import datetime
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import ForeignKey, JSON, Text, func
+from sqlalchemy import ForeignKey, JSON, SmallInteger, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from config import settings
@@ -37,3 +37,4 @@ class Chunk(Base):
     note_id: Mapped[int] = mapped_column(
         ForeignKey("notes.id"), nullable=False, index=True
     )
+    encryption_version: Mapped[int | None] = mapped_column(SmallInteger, nullable=True, default=None)

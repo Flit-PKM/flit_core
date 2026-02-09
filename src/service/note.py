@@ -11,15 +11,30 @@ from models.category import Category
 from models.note import Note
 from models.note_category import NoteCategory
 from schemas.note import NoteCreate, NoteUpdate
+from service.encryption import (
+    decrypt_note_fields,
+    encrypt_note_fields,
+    is_encryption_enabled_for_user,
+)
 
 logger = get_logger(__name__)
 
 
 async def create_note(session: AsyncSession, data: NoteCreate) -> Note:
-    db_note = Note(**data.model_dump())
+    dump = data.model_dump()
+    if await is_encryption_enabled_for_user(session, data.user_id):
+        title_enc, content_enc = await encrypt_note_fields(
+            session, data.user_id, dump["title"], dump["content"]
+        )
+        dump["title"] = title_enc
+        dump["content"] = content_enc
+        dump["encryption_version"] = 1
+    db_note = Note(**dump)
     session.add(db_note)
     await session.flush()
     await session.refresh(db_note)
+    if await is_encryption_enabled_for_user(session, db_note.user_id):
+        await decrypt_note_fields(session, db_note)
     logger.info("Note created: id=%s, user_id=%s", db_note.id, db_note.user_id)
     return db_note
 
@@ -28,7 +43,10 @@ async def get_note(session: AsyncSession, note_id: int) -> Note | None:
     result = await session.execute(
         select(Note).where(Note.id == note_id, Note.is_deleted == False)
     )
-    return result.scalar_one_or_none()
+    note = result.scalar_one_or_none()
+    if note and await is_encryption_enabled_for_user(session, note.user_id):
+        await decrypt_note_fields(session, note)
+    return note
 
 
 async def get_note_or_404(session: AsyncSession, note_id: int) -> Note:
@@ -63,7 +81,7 @@ async def get_notes_by_user(
             )
             .distinct()
         )
-    if search:
+    if search and not await is_encryption_enabled_for_user(session, user_id):
         pattern = f"%{search}%"
         stmt = stmt.where(
             or_(
@@ -73,7 +91,11 @@ async def get_notes_by_user(
         )
     stmt = stmt.offset(skip).limit(limit)
     result = await session.execute(stmt)
-    return list(result.scalars().unique().all() if category_name else result.scalars().all())
+    notes = list(result.scalars().unique().all() if category_name else result.scalars().all())
+    if await is_encryption_enabled_for_user(session, user_id):
+        for note in notes:
+            await decrypt_note_fields(session, note)
+    return notes
 
 
 async def get_all_notes(
@@ -95,12 +117,23 @@ async def update_note(
 ) -> Note:
     note = await get_note_or_404(session, note_id)
     payload = data.model_dump(exclude_unset=True)
+    if await is_encryption_enabled_for_user(session, note.user_id) and ("title" in payload or "content" in payload):
+        title = payload.get("title", note.title)
+        content = payload.get("content", note.content)
+        title_enc, content_enc = await encrypt_note_fields(
+            session, note.user_id, title, content
+        )
+        payload["title"] = title_enc
+        payload["content"] = content_enc
+        payload["encryption_version"] = 1
     for field, value in payload.items():
         setattr(note, field, value)
     # Increment version on update
     note.version += 1
     await session.flush()
     await session.refresh(note)
+    if await is_encryption_enabled_for_user(session, note.user_id):
+        await decrypt_note_fields(session, note)
     logger.info("Note updated: id=%s, version=%s", note_id, note.version)
     return note
 

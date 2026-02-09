@@ -17,6 +17,13 @@ from models.note import Note, NoteType
 from models.note_category import NoteCategory
 from models.relationship import Relationship
 from schemas.note import NoteCreate
+from service.encryption import (
+    decrypt_chunk_summary,
+    decrypt_note_fields,
+    encrypt_chunk_summary,
+    encrypt_note_fields,
+    is_encryption_enabled_for_user,
+)
 from schemas.sync import (
     CategoryVersion,
     ChunkVersion,
@@ -171,7 +178,15 @@ async def sync_notes(
                     source_id=connected_app_id,
                     user_id=user_id,
                 )
-                db_note = Note(**note_data.model_dump())
+                dump = note_data.model_dump()
+                if await is_encryption_enabled_for_user(session, user_id):
+                    title_enc, content_enc = await encrypt_note_fields(
+                        session, user_id, dump["title"], dump["content"]
+                    )
+                    dump["title"] = title_enc
+                    dump["content"] = content_enc
+                    dump["encryption_version"] = 1
+                db_note = Note(**dump)
                 db_note.version = note_sync.version
                 session.add(db_note)
                 await session.flush()
@@ -207,6 +222,8 @@ async def sync_notes(
                         )
                     )
                     continue
+                if await is_encryption_enabled_for_user(session, user_id):
+                    await decrypt_note_fields(session, db_note)
 
                 # Version conflict resolution: higher version wins
                 if note_sync.version < db_note.version:
@@ -227,8 +244,16 @@ async def sync_notes(
                         db_note.is_deleted = True
                         db_note.version = note_sync.version
                     else:
-                        db_note.title = note_sync.title
-                        db_note.content = note_sync.content
+                        if await is_encryption_enabled_for_user(session, user_id):
+                            title_enc, content_enc = await encrypt_note_fields(
+                                session, user_id, note_sync.title, note_sync.content
+                            )
+                            db_note.title = title_enc
+                            db_note.content = content_enc
+                            db_note.encryption_version = 1
+                        else:
+                            db_note.title = note_sync.title
+                            db_note.content = note_sync.content
                         db_note.type = note_sync.type
                         db_note.version = note_sync.version
                     await session.flush()
@@ -265,8 +290,16 @@ async def sync_notes(
                         or db_note.type != note_sync.type
                     ):
                         # Content differs, accept update and increment version
-                        db_note.title = note_sync.title
-                        db_note.content = note_sync.content
+                        if await is_encryption_enabled_for_user(session, user_id):
+                            title_enc, content_enc = await encrypt_note_fields(
+                                session, user_id, note_sync.title, note_sync.content
+                            )
+                            db_note.title = title_enc
+                            db_note.content = content_enc
+                            db_note.encryption_version = 1
+                        else:
+                            db_note.title = note_sync.title
+                            db_note.content = note_sync.content
                         db_note.type = note_sync.type
                         db_note.version += 1
                         await session.flush()
@@ -321,7 +354,11 @@ async def get_notes_by_ids(
             Note.user_id == user_id,
         )
     )
-    return list(result.scalars().all())
+    notes = list(result.scalars().all())
+    if await is_encryption_enabled_for_user(session, user_id):
+        for note in notes:
+            await decrypt_note_fields(session, note)
+    return notes
 
 
 # ----- Categories -----
@@ -788,14 +825,22 @@ async def sync_chunks(
                 )
                 continue
             if s.core_id is None:
+                summary_val = s.summary
+                enc_version = None
+                if await is_encryption_enabled_for_user(session, user_id):
+                    summary_val = await encrypt_chunk_summary(
+                        session, user_id, s.summary
+                    )
+                    enc_version = 1
                 db = Chunk(
                     note_id=s.note_core_id,
                     position_start=s.position_start,
                     position_end=s.position_end,
-                    summary=s.summary,
+                    summary=summary_val,
                     embedding=s.embedding,
                     version=s.version,
                     is_deleted=s.is_deleted,
+                    encryption_version=enc_version,
                 )
                 session.add(db)
                 await session.flush()
@@ -832,7 +877,13 @@ async def sync_chunks(
                 else:
                     db.position_start = s.position_start
                     db.position_end = s.position_end
-                    db.summary = s.summary
+                    if await is_encryption_enabled_for_user(session, user_id):
+                        db.summary = await encrypt_chunk_summary(
+                            session, user_id, s.summary
+                        )
+                        db.encryption_version = 1
+                    else:
+                        db.summary = s.summary
                     if s.embedding is not None:
                         db.embedding = s.embedding
                     db.is_deleted = s.is_deleted
@@ -868,8 +919,11 @@ async def get_chunks_by_ids(
         return []
     user_notes = await _user_note_ids(session, user_id)
     r = await session.execute(select(Chunk).where(Chunk.id.in_(chunk_ids)))
-    chunks = list(r.scalars().all())
-    return [c for c in chunks if c.note_id in user_notes]
+    chunks = [c for c in r.scalars().all() if c.note_id in user_notes]
+    if await is_encryption_enabled_for_user(session, user_id):
+        for chunk in chunks:
+            await decrypt_chunk_summary(session, chunk)
+    return chunks
 
 
 # ----- NoteCategories (scope: note and category belong to user) -----

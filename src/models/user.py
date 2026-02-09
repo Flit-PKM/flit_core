@@ -2,9 +2,12 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import StrEnum
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import Boolean, String, func
+
+if TYPE_CHECKING:
+    from .user_encryption_key import UserEncryptionKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base
@@ -47,6 +50,12 @@ class User(Base):
 
     plan_subscription: Mapped[Optional["PlanSubscription"]] = relationship(
         "PlanSubscription",
+        back_populates="user",
+        uselist=False,
+        lazy="selectin",
+    )
+    encryption_key: Mapped[Optional["UserEncryptionKey"]] = relationship(
+        "UserEncryptionKey",
         back_populates="user",
         uselist=False,
         lazy="selectin",

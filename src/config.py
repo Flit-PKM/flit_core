@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import List, Literal, Optional
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, computed_field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from urllib.parse import quote
 
@@ -11,6 +11,8 @@ _DEFAULT_ALLOWED_APPS: List[dict[str, str]] = [
     {"slug": "flit", "name": "Flit"},
     {"slug": "still", "name": "Still"},
 ]
+
+_DEFAULT_CORS_ORIGINS: List[str] = ["http://localhost:5173"]
 
 
 class Settings(BaseSettings):
@@ -60,11 +62,30 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
     LOG_FORMAT: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 
-    # CORS Settings
-    CORS_ORIGINS: List[str] = Field(
-        default=["http://localhost:5173"],
-        description="Allowed CORS origins"
+    # CORS Settings (env: comma-separated or JSON array; empty/missing => default)
+    cors_origins_env: Optional[str] = Field(
+        default=None,
+        description="CORS_ORIGINS env: comma-separated origins or JSON array",
+        validation_alias="CORS_ORIGINS",
     )
+
+    @computed_field
+    @property
+    def CORS_ORIGINS(self) -> List[str]:
+        """Allowed CORS origins (from env: comma-separated or JSON; default if missing/blank)."""
+        raw = self.cors_origins_env
+        if not raw or not raw.strip():
+            return _DEFAULT_CORS_ORIGINS.copy()
+        s = raw.strip()
+        if s.startswith("["):
+            try:
+                parsed = json.loads(s)
+            except json.JSONDecodeError as e:
+                raise ValueError(f"CORS_ORIGINS: invalid JSON: {e}") from e
+            if not isinstance(parsed, list):
+                raise ValueError("CORS_ORIGINS: JSON must be a list of strings")
+            return [str(x).strip() for x in parsed if str(x).strip()]
+        return [x.strip() for x in s.split(",") if x.strip()]
 
     # Webapp (frontend build) - path relative to project root or absolute
     WEBAPP_BUILD_DIR: str = Field(
@@ -128,7 +149,30 @@ class Settings(BaseSettings):
     )
     DODO_PAYMENTS_SUBSCRIPTION_PRODUCT_ID: Optional[str] = Field(
         default=None,
-        description="Dodo Payments product ID for the single subscription plan",
+        description="Optional: used for is_billing_configured when the 4 plan IDs are not set (e.g. sync gating).",
+    )
+    # Four separate subscription products (Core+AI with optional Encryption). IDs from Dodo dashboard.
+    DODO_PAYMENTS_MONTHLY_CORE_AI: Optional[str] = Field(
+        default=None,
+        description="Dodo product ID for Monthly Core+AI subscription.",
+    )
+    DODO_PAYMENTS_MONTHLY_CORE_AI_ENCRYPTION: Optional[str] = Field(
+        default=None,
+        description="Dodo product ID for Monthly Core+AI+Encryption subscription.",
+    )
+    DODO_PAYMENTS_ANNUAL_CORE_AI: Optional[str] = Field(
+        default=None,
+        description="Dodo product ID for Annual Core+AI subscription.",
+    )
+    DODO_PAYMENTS_ANNUAL_CORE_AI_ENCRYPTION: Optional[str] = Field(
+        default=None,
+        description="Dodo product ID for Annual Core+AI+Encryption subscription.",
+    )
+
+    # Encryption at rest (optional; when set, notes and chunk summaries are encrypted per-user)
+    ENCRYPTION_MASTER_KEY: Optional[str] = Field(
+        default=None,
+        description="Base64-encoded 32-byte key for wrapping per-user DEKs. When unset, encryption is disabled.",
     )
 
     @field_validator("SECRET_KEY")
@@ -158,6 +202,26 @@ class Settings(BaseSettings):
         if v.upper() not in allowed:
             raise ValueError(f"LOG_LEVEL must be one of {allowed}")
         return v.upper()
+
+    @field_validator("ENCRYPTION_MASTER_KEY")
+    @classmethod
+    def validate_encryption_master_key(cls, v: Optional[str]) -> Optional[str]:
+        """If set, ENCRYPTION_MASTER_KEY must decode to 32 bytes (base64)."""
+        if not v:
+            return None
+        import base64
+        try:
+            key_bytes = base64.b64decode(v, validate=True)
+        except Exception:
+            raise ValueError("ENCRYPTION_MASTER_KEY must be valid base64")
+        if len(key_bytes) != 32:
+            raise ValueError("ENCRYPTION_MASTER_KEY must decode to 32 bytes")
+        return v
+
+    @property
+    def encryption_enabled(self) -> bool:
+        """True when encryption at rest is configured."""
+        return bool(self.ENCRYPTION_MASTER_KEY)
 
     @model_validator(mode="after")
     def validate_database_backend(self) -> "Settings":
