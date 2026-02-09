@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import hmac
 import hashlib
 import json
@@ -471,13 +472,13 @@ def verify_webhook_signature(
         return False
 
     signed_content = f"{webhook_id}.{timestamp}.".encode("utf-8") + payload_body
-    expected = hmac.new(
+    expected_bytes = hmac.new(
         secret.encode("utf-8"),
         signed_content,
         hashlib.sha256,
-    ).hexdigest()
+    ).digest()
 
-    # Signature header can be "v1,hexsig" or multiple "v1,sig1 v1,sig2"
+    # Signature header is "v1,<base64>" (Dodo sends base64-encoded HMAC-SHA256)
     parts = signature.split()
     signature_has_v1 = any(p.strip().startswith("v1,") for p in parts)
     received_sig_len: int | None = None
@@ -490,17 +491,21 @@ def verify_webhook_signature(
                 if received_sig_len is None:
                     received_sig_len = len(sig)
                     received_sig_prefix = sig[:8] if len(sig) >= 8 else sig
-                if hmac.compare_digest(sig, expected):
+                try:
+                    received_sig_bytes = base64.b64decode(sig)
+                except (ValueError, TypeError):
+                    continue
+                if hmac.compare_digest(received_sig_bytes, expected_bytes):
                     return True
 
     logger.warning(
-        "Dodo webhook signature verification failed (detail): webhook_timestamp=%s signed_content_len=%s signature_parts_count=%s signature_has_v1=%s received_sig_len=%s expected_sig_len=64 expected_sig_prefix=%s received_sig_prefix=%s",
+        "Dodo webhook signature verification failed (detail): webhook_timestamp=%s signed_content_len=%s signature_parts_count=%s signature_has_v1=%s received_sig_len=%s expected_sig_bytes=32 expected_sig_prefix=%s received_sig_prefix=%s",
         timestamp,
         len(signed_content),
         len(parts),
         signature_has_v1,
         received_sig_len,
-        expected[:8],
+        (expected_bytes[:4].hex() if len(expected_bytes) >= 4 else ""),
         received_sig_prefix,
     )
     return False
