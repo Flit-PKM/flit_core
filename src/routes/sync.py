@@ -103,8 +103,19 @@ async def compare_categories_route(
 ):
     """Compare category versions between app and server. Returns to_pull and to_push."""
     user_id, _ = oauth_ctx
-    return await compare_categories(db, user_id, body.categories)
-
+    result = await compare_categories(db, user_id, body.categories)
+    print('\n')
+    print('*'*100)
+    print('\n')
+    print('Comparing Categories:')
+    print(body.categories)
+    print('*'*100)
+    print('\n')
+    print('Comparing Categories Result:')
+    print(result.model_dump_json(indent=2))
+    print('*'*100)
+    print('\n')
+    return result
 
 @router.post("/compare/relationships", response_model=RelationshipsCompareResult)
 async def compare_relationships_route(
@@ -114,7 +125,19 @@ async def compare_relationships_route(
 ):
     """Compare relationship versions between app and server. Returns to_pull and to_push."""
     user_id, _ = oauth_ctx
-    return await compare_relationships(db, user_id, body.relationships)
+    result = await compare_relationships(db, user_id, body.relationships)
+    print('\n')
+    print('*'*100)
+    print('\n')
+    print('Comparing Relationships:')
+    print(body.relationships)
+    print('*'*100)
+    print('\n')
+    print('Comparing Relationships Result:')
+    print(result.model_dump_json(indent=2))
+    print('*'*100)
+    print('\n')
+    return result
 
 
 @router.post("/compare/chunks", response_model=ChunksCompareResult)
@@ -125,7 +148,19 @@ async def compare_chunks_route(
 ):
     """Compare chunk versions between app and server. Returns to_pull and to_push."""
     user_id, _ = oauth_ctx
-    return await compare_chunks(db, user_id, body.chunks)
+    result = await compare_chunks(db, user_id, body.chunks)
+    print('\n')
+    print('*'*100)
+    print('\n')
+    print('Comparing Chunks:')
+    print(body.chunks)
+    print('*'*100)
+    print('\n')
+    print('Comparing Chunks Result:')
+    print(result.model_dump_json(indent=2))
+    print('*'*100)
+    print('\n')
+    return result
 
 
 @router.post("/compare/note-categories", response_model=NoteCategoriesCompareResult)
@@ -136,7 +171,19 @@ async def compare_note_categories_route(
 ):
     """Compare note_category versions between app and server. Returns to_pull and to_push."""
     user_id, _ = oauth_ctx
-    return await compare_note_categories(db, user_id, body.note_categories)
+    result = await compare_note_categories(db, user_id, body.note_categories)
+    print('\n')
+    print('*'*100)
+    print('\n')
+    print('Comparing Note Categories:')
+    print(body.note_categories)
+    print('*'*100)
+    print('\n')
+    print('Comparing Note Categories Result:')
+    print(result.model_dump_json(indent=2))
+    print('*'*100)
+    print('\n')
+    return result
 
 
 # ----- Notes: GET fetch, POST push -----

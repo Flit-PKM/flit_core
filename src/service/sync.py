@@ -188,6 +188,8 @@ async def sync_notes(
                     dump["encryption_version"] = 1
                 db_note = Note(**dump)
                 db_note.version = note_sync.version
+                if note_sync.is_deleted:
+                    db_note.is_deleted = True
                 session.add(db_note)
                 await session.flush()
                 await session.refresh(db_note)
@@ -301,6 +303,8 @@ async def sync_notes(
                             db_note.title = note_sync.title
                             db_note.content = note_sync.content
                         db_note.type = note_sync.type
+                        if note_sync.is_deleted:
+                            db_note.is_deleted = True
                         db_note.version += 1
                         await session.flush()
 
@@ -487,7 +491,8 @@ async def sync_categories(
                     )
                 elif s.version > db.version or s.is_deleted:
                     db.name = s.name if not s.is_deleted else db.name
-                    db.is_deleted = s.is_deleted
+                    if s.is_deleted:
+                        db.is_deleted = True
                     db.version = s.version
                     await session.flush()
                     results.append(
@@ -499,6 +504,8 @@ async def sync_categories(
                     )
                 else:
                     db.name = s.name
+                    if s.is_deleted:
+                        db.is_deleted = True
                     db.version += 1
                     await session.flush()
                     results.append(
@@ -679,7 +686,8 @@ async def sync_relationships(
                     )
                 else:
                     db.type = s.type
-                    db.is_deleted = s.is_deleted
+                    if s.is_deleted:
+                        db.is_deleted = True
                     db.version = s.version
                     await session.flush()
                     results.append(
@@ -886,7 +894,8 @@ async def sync_chunks(
                         db.summary = s.summary
                     if s.embedding is not None:
                         db.embedding = s.embedding
-                    db.is_deleted = s.is_deleted
+                    if s.is_deleted:
+                        db.is_deleted = True
                     db.version = s.version
                     await session.flush()
                     results.append(
@@ -1070,7 +1079,8 @@ async def sync_note_categories(
                         )
                     )
                 else:
-                    db.is_deleted = s.is_deleted
+                    if s.is_deleted:
+                        db.is_deleted = True
                     db.version = s.version
                     await session.flush()
                     results.append(
