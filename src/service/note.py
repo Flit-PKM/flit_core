@@ -89,7 +89,7 @@ async def get_notes_by_user(
                 Note.content.ilike(pattern),
             )
         )
-    stmt = stmt.offset(skip).limit(limit)
+    stmt = stmt.order_by(Note.updated_at.desc()).offset(skip).limit(limit)
     result = await session.execute(stmt)
     notes = list(result.scalars().unique().all() if category_name else result.scalars().all())
     if await is_encryption_enabled_for_user(session, user_id):
