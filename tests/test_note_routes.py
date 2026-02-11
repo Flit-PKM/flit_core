@@ -16,7 +16,7 @@ from service.user import create_user
 
 def _login(test_client, email: str, password: str) -> str:
     r = test_client.post(
-        "/auth/login-json",
+        "/api/auth/login-json",
         json={"email": email, "password": password},
     )
     assert r.status_code == status.HTTP_200_OK
@@ -83,20 +83,20 @@ async def test_list_notes_filter_by_category_name(
     token = _login(test_client, sample_user_data["email"], sample_user_data["password"])
     headers = {"Authorization": f"Bearer {token}"}
 
-    r = test_client.get("/notes", params={"filter": "Work"}, headers=headers)
+    r = test_client.get("/api/notes", params={"filter": "Work"}, headers=headers)
     assert r.status_code == status.HTTP_200_OK
     data = r.json()
     assert len(data) == 2
     ids = {n["id"] for n in data}
     assert ids == {note_work.id, note_work2.id}
 
-    r = test_client.get("/notes", params={"filter": "Personal"}, headers=headers)
+    r = test_client.get("/api/notes", params={"filter": "Personal"}, headers=headers)
     assert r.status_code == status.HTTP_200_OK
     data = r.json()
     assert len(data) == 1
     assert data[0]["id"] == note_personal.id
 
-    r = test_client.get("/notes", params={"filter": "NonExistent"}, headers=headers)
+    r = test_client.get("/api/notes", params={"filter": "NonExistent"}, headers=headers)
     assert r.status_code == status.HTTP_200_OK
     assert r.json() == []
 
@@ -144,20 +144,20 @@ async def test_list_notes_search_content(
     token = _login(test_client, sample_user_data["email"], sample_user_data["password"])
     headers = {"Authorization": f"Bearer {token}"}
 
-    r = test_client.get("/notes", params={"search": "python"}, headers=headers)
+    r = test_client.get("/api/notes", params={"search": "python"}, headers=headers)
     assert r.status_code == status.HTTP_200_OK
     data = r.json()
     assert len(data) == 2
     ids = {n["id"] for n in data}
     assert ids == {note1.id, note2.id}
 
-    r = test_client.get("/notes", params={"search": "Discuss"}, headers=headers)
+    r = test_client.get("/api/notes", params={"search": "Discuss"}, headers=headers)
     assert r.status_code == status.HTTP_200_OK
     data = r.json()
     assert len(data) == 1
     assert data[0]["id"] == note2.id
 
-    r = test_client.get("/notes", params={"search": "xyz"}, headers=headers)
+    r = test_client.get("/api/notes", params={"search": "xyz"}, headers=headers)
     assert r.status_code == status.HTTP_200_OK
     assert r.json() == []
 
@@ -219,7 +219,7 @@ async def test_list_notes_filter_and_search_combined(
     headers = {"Authorization": f"Bearer {token}"}
 
     r = test_client.get(
-        "/notes",
+        "/api/notes",
         params={"filter": "Work", "search": "Task"},
         headers=headers,
     )
@@ -230,7 +230,7 @@ async def test_list_notes_filter_and_search_combined(
     assert ids == {note1.id, note2.id}
 
     r = test_client.get(
-        "/notes",
+        "/api/notes",
         params={"filter": "Work", "search": "one"},
         headers=headers,
     )
@@ -274,7 +274,7 @@ async def test_list_notes_without_filter_or_search_unchanged(
     token = _login(test_client, sample_user_data["email"], sample_user_data["password"])
     headers = {"Authorization": f"Bearer {token}"}
 
-    r = test_client.get("/notes", headers=headers)
+    r = test_client.get("/api/notes", headers=headers)
     assert r.status_code == status.HTTP_200_OK
     data = r.json()
     assert len(data) == 2

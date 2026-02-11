@@ -13,7 +13,7 @@ from service.user import create_user
 
 def _login(test_client, email: str, password: str) -> str:
     r = test_client.post(
-        "/auth/login-json",
+        "/api/auth/login-json",
         json={"email": email, "password": password},
     )
     assert r.status_code == status.HTTP_200_OK
@@ -78,7 +78,7 @@ async def test_delete_connected_app_returns_body_and_revokes_tokens(
 
     # Revoke connected app
     r = test_client.delete(
-        f"/connected-apps/{connected_app.id}",
+        f"/api/connected-apps/{connected_app.id}",
         headers={"Authorization": f"Bearer {token}"},
     )
     assert r.status_code == status.HTTP_200_OK
@@ -111,7 +111,7 @@ async def test_delete_connected_app_not_found(
     token = _login(test_client, sample_user_data["email"], sample_user_data["password"])
 
     r = test_client.delete(
-        "/connected-apps/9999",
+        "/api/connected-apps/9999",
         headers={"Authorization": f"Bearer {token}"},
     )
     assert r.status_code == status.HTTP_404_NOT_FOUND

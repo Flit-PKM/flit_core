@@ -14,7 +14,7 @@ from main import app
 async def test_get_plans_when_not_configured_returns_empty(test_client):
     """GET /billing/plans returns 200 with empty list when plans are not configured (no API key)."""
     with patch("service.billing.is_plans_configured", return_value=False):
-        response = test_client.get("/billing/plans")
+        response = test_client.get("/api/billing/plans")
     assert response.status_code == 200
     assert response.json() == []
 
@@ -89,7 +89,7 @@ async def test_get_plans_returns_plan_details_when_configured(test_client):
         return sample_plans
 
     with patch("routes.billing.get_plans", side_effect=mock_get_plans):
-        response = test_client.get("/billing/plans")
+        response = test_client.get("/api/billing/plans")
     assert response.status_code == 200
     data = response.json()
     assert len(data) == 4
@@ -128,7 +128,7 @@ async def test_checkout_requires_product_id(test_client):
     """POST /billing/checkout without product_id returns 422 (validation error)."""
     _override_checkout_auth()
     try:
-        response = test_client.post("/billing/checkout", json={})
+        response = test_client.post("/api/billing/checkout", json={})
     finally:
         _clear_checkout_auth()
     assert response.status_code == 422
@@ -140,7 +140,7 @@ async def test_checkout_empty_product_id_returns_400(test_client):
     _override_checkout_auth()
     try:
         response = test_client.post(
-            "/billing/checkout",
+            "/api/billing/checkout",
             json={"product_id": ""},
         )
     finally:
@@ -155,7 +155,7 @@ async def test_checkout_blank_product_id_returns_400(test_client):
     _override_checkout_auth()
     try:
         response = test_client.post(
-            "/billing/checkout",
+            "/api/billing/checkout",
             json={"product_id": "   "},
         )
     finally:
@@ -170,7 +170,7 @@ async def test_checkout_not_configured_returns_503(test_client):
     try:
         with patch("routes.billing.is_checkout_configured", return_value=False):
             response = test_client.post(
-                "/billing/checkout",
+                "/api/billing/checkout",
                 json={"product_id": "prod_abc"},
             )
     finally:
@@ -192,7 +192,7 @@ async def test_checkout_success_passes_product_id_to_service(test_client):
         with patch("routes.billing.create_checkout_session", side_effect=mock_create_checkout_session):
             with patch("routes.billing.is_checkout_configured", return_value=True):
                 response = test_client.post(
-                    "/billing/checkout",
+                    "/api/billing/checkout",
                     json={
                         "product_id": "prod_chosen_plan",
                         "return_url": "https://app.example.com/success",
@@ -222,7 +222,7 @@ async def test_checkout_disallowed_product_id_returns_400(test_client):
             with patch("service.billing.get_allowed_product_ids", return_value=allowed):
                 with patch("service.billing._get_dodo_client", return_value=mock_client):
                     response = test_client.post(
-                        "/billing/checkout",
+                        "/api/billing/checkout",
                         json={"product_id": "prod_unknown"},
                     )
     finally:
@@ -237,7 +237,7 @@ async def test_checkout_disallowed_product_id_returns_400(test_client):
 async def test_billing_complete_requires_auth(test_client):
     """POST /billing/complete without auth returns 401."""
     response = test_client.post(
-        "/billing/complete",
+        "/api/billing/complete",
         json={"subscription_id": "sub_123", "status": "active"},
     )
     assert response.status_code == 401
@@ -248,7 +248,7 @@ async def test_billing_complete_missing_body_returns_422(test_client):
     """POST /billing/complete without body or missing fields returns 422."""
     _override_checkout_auth()
     try:
-        response = test_client.post("/billing/complete", json={})
+        response = test_client.post("/api/billing/complete", json={})
     finally:
         _clear_checkout_auth()
     assert response.status_code == 422
@@ -263,7 +263,7 @@ async def test_billing_complete_success_returns_200(test_client):
         with patch("routes.billing.complete_subscription", mock_complete):
             with patch("routes.billing.is_checkout_configured", return_value=True):
                 response = test_client.post(
-                    "/billing/complete",
+                    "/api/billing/complete",
                     json={"subscription_id": "sub_abc", "status": "active"},
                 )
     finally:

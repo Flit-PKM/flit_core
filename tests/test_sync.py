@@ -330,7 +330,7 @@ async def test_sync_compare_notes_with_oauth_token(
 
     with patch("service.billing.is_billing_configured", return_value=False):
         r = test_client.post(
-            "/sync/compare/notes",
+            "/api/sync/compare/notes",
             json={"notes": []},
             headers={"Authorization": f"Bearer {access_token.token}"},
         )
@@ -353,7 +353,7 @@ async def test_sync_returns_403_when_billing_configured_and_no_subscription(
 
     with patch("service.billing.is_billing_configured", return_value=True):
         r = test_client.post(
-            "/sync/compare/notes",
+            "/api/sync/compare/notes",
             json={"notes": []},
             headers={"Authorization": f"Bearer {access_token.token}"},
         )
@@ -386,7 +386,7 @@ async def test_sync_returns_200_when_billing_configured_and_active_subscription(
 
     with patch("service.billing.is_billing_configured", return_value=True):
         r = test_client.post(
-            "/sync/compare/notes",
+            "/api/sync/compare/notes",
             json={"notes": []},
             headers={"Authorization": f"Bearer {access_token.token}"},
         )

@@ -28,6 +28,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 from models.base import Base  # ← your DeclarativeBase with metadata
 # Import all models to register them with Base.metadata
 from models import (  # noqa: F401
+    AccessCode,
+    AccessCodeGrant,
     Category,
     Chunk,
     ConnectedApp,

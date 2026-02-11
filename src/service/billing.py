@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import settings
 from models.plan_subscription import PlanSubscription
+from service.access_code import get_active_access_grant
 
 logger = logging.getLogger(__name__)
 
@@ -483,18 +484,22 @@ async def get_subscription_for_user(
 
 async def require_active_subscription(db: AsyncSession, user_id: int) -> None:
     """
-    Ensure the user has an active subscription when billing is configured.
+    Ensure the user has an active subscription or a non-expired access-code grant when billing is configured.
     If billing is not configured, no-op (sync remains available).
-    Raises HTTPException 403 if billing is configured and user has no active subscription.
+    Raises HTTPException 403 if billing is configured and user has no active subscription nor access grant.
     """
     if not is_billing_configured():
         return
     sub = await get_subscription_for_user(db, user_id)
-    if not sub or sub.status != SUBSCRIPTION_STATUS_ACTIVE:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="An active subscription is required to use sync.",
-        )
+    if sub and sub.status == SUBSCRIPTION_STATUS_ACTIVE:
+        return
+    grant = await get_active_access_grant(db, user_id)
+    if grant is not None:
+        return
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="An active subscription is required to use sync.",
+    )
 
 
 def is_webhook_duplicate(webhook_id: str) -> bool:

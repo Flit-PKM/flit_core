@@ -20,7 +20,7 @@ async def test_register_user_success(
     sample_user_data: dict,
 ):
     """Test successful user registration."""
-    response = test_client.post("/auth/register", json=sample_user_data)
+    response = test_client.post("/api/auth/register", json=sample_user_data)
     
     assert response.status_code == status.HTTP_201_CREATED
     data = response.json()
@@ -45,7 +45,7 @@ async def test_register_duplicate_email(
     await test_db_session.commit()
     
     # Try to register again with same email
-    response = test_client.post("/auth/register", json=sample_user_data)
+    response = test_client.post("/api/auth/register", json=sample_user_data)
     
     assert response.status_code == status.HTTP_400_BAD_REQUEST
     assert "already registered" in response.json()["detail"].lower()
@@ -67,7 +67,7 @@ async def test_login_success(
     
     # Login
     response = test_client.post(
-        "/auth/login-json",
+        "/api/auth/login-json",
         json={
             "email": sample_user_data["email"],
             "password": password,
@@ -88,7 +88,7 @@ async def test_login_invalid_email(
 ):
     """Test login with invalid email."""
     response = test_client.post(
-        "/auth/login-json",
+        "/api/auth/login-json",
         json={
             "email": "nonexistent@example.com",
             "password": sample_user_data["password"],
@@ -114,7 +114,7 @@ async def test_login_invalid_password(
     
     # Try to login with wrong password
     response = test_client.post(
-        "/auth/login-json",
+        "/api/auth/login-json",
         json={
             "email": sample_user_data["email"],
             "password": "wrongpassword",
@@ -141,7 +141,7 @@ async def test_login_form_data(
     
     # Login with form data
     response = test_client.post(
-        "/auth/login",
+        "/api/auth/login",
         data={
             "username": sample_user_data["email"],
             "password": password,
@@ -169,7 +169,7 @@ async def test_token_validation(
     await test_db_session.commit()
     
     login_response = test_client.post(
-        "/auth/login-json",
+        "/api/auth/login-json",
         json={
             "email": sample_user_data["email"],
             "password": password,
@@ -179,7 +179,7 @@ async def test_token_validation(
     
     # Use token to access protected endpoint (current user; GET /users/ requires superuser)
     response = test_client.get(
-        "/user/",
+        "/api/user/",
         headers={"Authorization": f"Bearer {token}"},
     )
     
@@ -192,7 +192,7 @@ async def test_invalid_token(
 ):
     """Test that invalid token is rejected."""
     response = test_client.get(
-        "/users/",
+        "/api/users/",
         headers={"Authorization": "Bearer invalid_token"},
     )
 
@@ -202,7 +202,7 @@ async def test_invalid_token(
 def _login(test_client, email: str, password: str) -> str:
     """Login and return access token."""
     r = test_client.post(
-        "/auth/login-json",
+        "/api/auth/login-json",
         json={"email": email, "password": password},
     )
     assert r.status_code == status.HTTP_200_OK
@@ -223,7 +223,7 @@ async def test_get_user_includes_subscription_null_when_no_subscription(
     await test_db_session.commit()
 
     token = _login(test_client, sample_user_data["email"], password)
-    response = test_client.get("/user/", headers={"Authorization": f"Bearer {token}"})
+    response = test_client.get("/api/user/", headers={"Authorization": f"Bearer {token}"})
 
     assert response.status_code == status.HTTP_200_OK
     data = response.json()
@@ -255,7 +255,7 @@ async def test_get_user_includes_subscription_when_user_has_plan_subscription(
     await test_db_session.commit()
 
     token = _login(test_client, sample_user_data["email"], password)
-    response = test_client.get("/user/", headers={"Authorization": f"Bearer {token}"})
+    response = test_client.get("/api/user/", headers={"Authorization": f"Bearer {token}"})
 
     assert response.status_code == status.HTTP_200_OK
     data = response.json()

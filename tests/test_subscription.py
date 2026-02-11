@@ -18,7 +18,7 @@ from service.user import create_user, grant_superuser
 
 def _login(test_client, email: str, password: str) -> str:
     r = test_client.post(
-        "/auth/login-json",
+        "/api/auth/login-json",
         json={"email": email, "password": password},
     )
     assert r.status_code == status.HTTP_200_OK
@@ -107,7 +107,7 @@ async def test_get_subscriptions_requires_superuser(
     await test_db_session.commit()
     token = _login(test_client, sample_user_data["email"], sample_user_data["password"])
     response = test_client.get(
-        "/subscriptions/",
+        "/api/subscriptions/",
         headers={"Authorization": f"Bearer {token}"},
     )
     assert response.status_code == status.HTTP_403_FORBIDDEN
@@ -130,7 +130,7 @@ async def test_get_subscriptions_superuser_returns_list(
     await create_subscription(test_db_session, "sub@example.com")
     await test_db_session.commit()
     response = test_client.get(
-        "/subscriptions/",
+        "/api/subscriptions/",
         headers={"Authorization": f"Bearer {token}"},
     )
     assert response.status_code == status.HTTP_200_OK
@@ -146,7 +146,7 @@ async def test_get_subscriptions_superuser_returns_list(
 async def test_subscribe_without_turnstile_token_returns_400(test_client):
     """POST /subscriptions/ without valid Turnstile token returns 400."""
     response = test_client.post(
-        "/subscriptions/",
+        "/api/subscriptions/",
         json={"email": "new@example.com", "cf_turnstile_response": None},
     )
     assert response.status_code == status.HTTP_400_BAD_REQUEST
@@ -163,7 +163,7 @@ async def test_subscribe_with_mocked_turnstile_success(
     with patch("routes.subscription.verify_turnstile_token", new_callable=AsyncMock) as mock_verify:
         mock_verify.return_value = {"success": True}
         response = test_client.post(
-            "/subscriptions/",
+            "/api/subscriptions/",
             json={
                 "email": "subscriber@example.com",
                 "cf_turnstile_response": "mock-token",
@@ -187,7 +187,7 @@ async def test_subscribe_duplicate_returns_409(
     await test_db_session.commit()
     with patch("routes.subscription.verify_turnstile_token", new_callable=AsyncMock):
         response = test_client.post(
-            "/subscriptions/",
+            "/api/subscriptions/",
             json={
                 "email": "dup@example.com",
                 "cf_turnstile_response": "mock-token",
@@ -204,7 +204,7 @@ async def test_unsubscribe_success(test_client, test_db_session: AsyncSession):
     await test_db_session.commit()
     response = test_client.request(
         "DELETE",
-        "/subscriptions/",
+        "/api/subscriptions/",
         json={"email": "unsub@example.com"},
     )
     assert response.status_code == status.HTTP_204_NO_CONTENT
@@ -217,7 +217,7 @@ async def test_unsubscribe_email_not_on_list_returns_404(test_client):
     """DELETE /subscriptions/ with email not on list returns 404."""
     response = test_client.request(
         "DELETE",
-        "/subscriptions/",
+        "/api/subscriptions/",
         json={"email": "notonlist@example.com"},
     )
     assert response.status_code == status.HTTP_404_NOT_FOUND

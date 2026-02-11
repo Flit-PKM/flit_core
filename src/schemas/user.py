@@ -112,6 +112,13 @@ class UserSubscriptionRead(BaseModel):
     dodo_subscription_id: Optional[str] = Field(None, description="Dodo subscription ID")
 
 
+class UserAccessGrantRead(BaseModel):
+    """Active access-code grant: time-limited access without a subscription."""
+
+    expires_at: str = Field(..., description="When the grant expires (ISO 8601)")
+    includes_encryption: bool = Field(..., description="Whether the grant includes encryption")
+
+
 class UserRead(UserBase):
     id: int = Field(..., description="Unique user identifier", examples=[1, 42])
     created_at: datetime = Field(..., description="Account creation timestamp", examples=["2024-01-15T10:30:00Z"])
@@ -119,6 +126,14 @@ class UserRead(UserBase):
     subscription: Optional[UserSubscriptionRead] = Field(
         None,
         description="User's plan subscription if any (one per user)",
+    )
+    access_grant: Optional[UserAccessGrantRead] = Field(
+        None,
+        description="Active access-code grant if any (shows when it expires)",
+    )
+    entitlement_active: bool = Field(
+        False,
+        description="True when the user has an active subscription or an active access-code grant",
     )
 
     model_config = ConfigDict(from_attributes=True)

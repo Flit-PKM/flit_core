@@ -9,7 +9,7 @@ from service.user import create_user, grant_superuser
 
 def _login(test_client, email: str, password: str) -> str:
     r = test_client.post(
-        "/auth/login-json",
+        "/api/auth/login-json",
         json={"email": email, "password": password},
     )
     assert r.status_code == status.HTTP_200_OK
@@ -29,7 +29,7 @@ async def test_grant_superuser_requires_superuser(
     await test_db_session.commit()
     token = _login(test_client, sample_user_data["email"], sample_user_data["password"])
     response = test_client.post(
-        f"/users/{user.id}/superuser",
+        f"/api/users/{user.id}/superuser",
         headers={"Authorization": f"Bearer {token}"},
     )
     assert response.status_code == status.HTTP_403_FORBIDDEN
@@ -63,7 +63,7 @@ async def test_grant_and_revoke_superuser(
 
     # Grant superuser to user
     response = test_client.post(
-        f"/users/{user.id}/superuser",
+        f"/api/users/{user.id}/superuser",
         headers={"Authorization": f"Bearer {admin_token}"},
     )
     assert response.status_code == status.HTTP_200_OK
@@ -72,7 +72,7 @@ async def test_grant_and_revoke_superuser(
 
     # Revoke superuser
     response = test_client.delete(
-        f"/users/{user.id}/superuser",
+        f"/api/users/{user.id}/superuser",
         headers={"Authorization": f"Bearer {admin_token}"},
     )
     assert response.status_code == status.HTTP_200_OK

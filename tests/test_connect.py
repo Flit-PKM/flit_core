@@ -13,7 +13,7 @@ from service.user import create_user
 
 def _login(test_client, email: str, password: str) -> str:
     r = test_client.post(
-        "/auth/login-json",
+        "/api/auth/login-json",
         json={"email": email, "password": password},
     )
     assert r.status_code == status.HTTP_200_OK
@@ -34,7 +34,7 @@ async def test_request_code_success(
 
     token = _login(test_client, sample_user_data["email"], sample_user_data["password"])
     r = test_client.post(
-        "/connect/request-code",
+        "/api/connect/request-code",
         json={},
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -53,7 +53,7 @@ async def test_request_code_no_auth(
 ):
     """Request code without authentication -> 401."""
     r = test_client.post(
-        "/connect/request-code",
+        "/api/connect/request-code",
         json={},
     )
     assert r.status_code == status.HTTP_401_UNAUTHORIZED
@@ -73,7 +73,7 @@ async def test_exchange_success(
 
     token = _login(test_client, sample_user_data["email"], sample_user_data["password"])
     req = test_client.post(
-        "/connect/request-code",
+        "/api/connect/request-code",
         json={},
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -81,7 +81,7 @@ async def test_exchange_success(
     code = req.json()["connection_code"]
 
     r = test_client.post(
-        "/connect/exchange",
+        "/api/connect/exchange",
         json={
             "connection_code": code,
             "app_slug": "flit",
@@ -104,7 +104,7 @@ async def test_exchange_invalid_code(
 ):
     """Exchange with invalid code -> 400."""
     r = test_client.post(
-        "/connect/exchange",
+        "/api/connect/exchange",
         json={
             "connection_code": "INVALID1",
             "app_slug": "flit",
@@ -130,7 +130,7 @@ async def test_exchange_already_used(
 
     token = _login(test_client, sample_user_data["email"], sample_user_data["password"])
     req = test_client.post(
-        "/connect/request-code",
+        "/api/connect/request-code",
         json={},
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -144,10 +144,10 @@ async def test_exchange_already_used(
         "platform": "macOS",
         "app_version": "1.0.0",
     }
-    r1 = test_client.post("/connect/exchange", json=payload)
+    r1 = test_client.post("/api/connect/exchange", json=payload)
     assert r1.status_code == status.HTTP_200_OK
 
-    r2 = test_client.post("/connect/exchange", json=payload)
+    r2 = test_client.post("/api/connect/exchange", json=payload)
     assert r2.status_code == status.HTTP_409_CONFLICT
 
 
@@ -169,7 +169,7 @@ async def test_exchange_expired_code(
     await test_db_session.commit()
 
     r = test_client.post(
-        "/connect/exchange",
+        "/api/connect/exchange",
         json={
             "connection_code": code_row.code,
             "app_slug": "flit",
@@ -195,7 +195,7 @@ async def test_connect_then_refresh(
 
     token = _login(test_client, sample_user_data["email"], sample_user_data["password"])
     req = test_client.post(
-        "/connect/request-code",
+        "/api/connect/request-code",
         json={"app_slug": "still"},
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -203,7 +203,7 @@ async def test_connect_then_refresh(
     code = req.json()["connection_code"]
 
     ex = test_client.post(
-        "/connect/exchange",
+        "/api/connect/exchange",
         json={
             "connection_code": code,
             "app_slug": "still",
@@ -216,7 +216,7 @@ async def test_connect_then_refresh(
     refresh_token = ex.json()["refresh_token"]
 
     r = test_client.post(
-        "/oauth/token",
+        "/api/oauth/token",
         json={"grant_type": "refresh_token", "refresh_token": refresh_token},
     )
     assert r.status_code == status.HTTP_200_OK

@@ -1,3 +1,4 @@
+from .access_code import AccessCode, AccessCodeGrant
 from .base import Base
 from .category import Category
 from .chunk import Chunk

@@ -10,7 +10,7 @@ async def test_oauth_refresh_token_invalid(
 ):
     """Refresh with invalid token returns 401."""
     r = test_client.post(
-        "/oauth/token",
+        "/api/oauth/token",
         json={
             "grant_type": "refresh_token",
             "refresh_token": "invalid_refresh_token",
@@ -25,7 +25,7 @@ async def test_oauth_refresh_token_wrong_grant(
 ):
     """Unsupported grant_type returns 400."""
     r = test_client.post(
-        "/oauth/token",
+        "/api/oauth/token",
         json={
             "grant_type": "authorization_code",
             "code": "x",
@@ -40,7 +40,7 @@ async def test_oauth_revoke_token(
 ):
     """Revoke returns 200 even if token unknown (per OAuth spec)."""
     r = test_client.post(
-        "/oauth/revoke",
+        "/api/oauth/revoke",
         json={
             "token": "some_token",
             "token_type_hint": "access_token",

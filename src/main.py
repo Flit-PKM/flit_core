@@ -9,6 +9,17 @@ from fastapi.exceptions import RequestValidationError
 from starlette.staticfiles import StaticFiles
 import uvicorn
 
+
+class SpaStaticFiles(StaticFiles):
+    """StaticFiles that serves index.html for unknown paths (SPA client-side routing)."""
+
+    def lookup_path(self, path: str):
+        full_path, stat_result = super().lookup_path(path)
+        if stat_result is None:
+            return super().lookup_path("index.html")
+        return full_path, stat_result
+
+from routes.access_code import router as access_code_router
 from routes.user import router as user_router, current_user_router
 from routes.auth import router as auth_router
 from routes.oauth import router as oauth_router
@@ -69,7 +80,7 @@ app = FastAPI(
 )
 
 
-@app.get("/health")
+@app.get("/api/health")
 async def health():
     """Readiness/liveness: returns 200 and optionally checks DB connectivity."""
     try:
@@ -166,26 +177,27 @@ app.add_middleware(
 app.middleware("http")(log_exceptions_middleware)
 app.add_middleware(RequestLoggingMiddleware)
 
-app.include_router(auth_router)
-app.include_router(current_user_router)
-app.include_router(user_router)
-app.include_router(oauth_router)
-app.include_router(connected_app_router)
-app.include_router(connect_router)
-app.include_router(app_router)
-app.include_router(sync_router)
-app.include_router(note_router)
-app.include_router(note_category_router)
-app.include_router(category_router)
-app.include_router(relationship_router)
-app.include_router(subscription_router)
-app.include_router(billing_router)
+app.include_router(auth_router, prefix="/api")
+app.include_router(access_code_router, prefix="/api")
+app.include_router(current_user_router, prefix="/api")
+app.include_router(user_router, prefix="/api")
+app.include_router(oauth_router, prefix="/api")
+app.include_router(connected_app_router, prefix="/api")
+app.include_router(connect_router, prefix="/api")
+app.include_router(app_router, prefix="/api")
+app.include_router(sync_router, prefix="/api")
+app.include_router(note_router, prefix="/api")
+app.include_router(note_category_router, prefix="/api")
+app.include_router(category_router, prefix="/api")
+app.include_router(relationship_router, prefix="/api")
+app.include_router(subscription_router, prefix="/api")
+app.include_router(billing_router, prefix="/api")
 
-# Mount SPA at / (after all API routes so unknown paths fall through to index.html)
+# Mount SPA at / (after all API routes; unknown paths fall back to index.html for client-side routing)
 if webapp_dir.is_dir():
     app.mount(
         "/",
-        StaticFiles(directory=str(webapp_dir), html=True),
+        SpaStaticFiles(directory=str(webapp_dir), html=True),
         name="frontend",
     )
 else:

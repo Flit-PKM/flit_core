@@ -16,6 +16,7 @@ from models.chunk import Chunk
 from models.note import Note
 from models.plan_subscription import PlanSubscription
 from models.user_encryption_key import UserEncryptionKey
+from service.access_code import user_has_encryption_grant
 
 logger = logging.getLogger(__name__)
 
@@ -47,21 +48,20 @@ def _encryption_product_ids() -> set[str]:
 
 
 async def user_has_encryption_plan(session: AsyncSession, user_id: int) -> bool:
-    """True iff the user has an active PlanSubscription whose product_id is an encryption plan."""
+    """True iff the user has an active PlanSubscription with encryption product_id or a non-expired access grant with encryption."""
     allowed = _encryption_product_ids()
-    if not allowed:
-        return False
-    result = await session.execute(
-        select(PlanSubscription).where(
-            PlanSubscription.user_id == user_id,
-            PlanSubscription.status == "active",
-            PlanSubscription.product_id.isnot(None),
+    if allowed:
+        result = await session.execute(
+            select(PlanSubscription).where(
+                PlanSubscription.user_id == user_id,
+                PlanSubscription.status == "active",
+                PlanSubscription.product_id.isnot(None),
+            )
         )
-    )
-    row = result.scalar_one_or_none()
-    if not row or not row.product_id:
-        return False
-    return row.product_id.strip() in allowed
+        row = result.scalar_one_or_none()
+        if row and row.product_id and row.product_id.strip() in allowed:
+            return True
+    return await user_has_encryption_grant(session, user_id)
 
 
 async def is_encryption_enabled_for_user(session: AsyncSession, user_id: int) -> bool:
