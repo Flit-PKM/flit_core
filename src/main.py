@@ -32,6 +32,7 @@ from routes.note_category import router as note_category_router
 from routes.category import router as category_router
 from routes.relationship import router as relationship_router
 from routes.subscription import router as subscription_router
+from routes.feedback import router as feedback_router
 from routes.billing import router as billing_router
 from middleware.logging import RequestLoggingMiddleware, log_exceptions_middleware
 from logging_config import setup_logging
@@ -144,7 +145,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     if settings.ENVIRONMENT == "development" and hasattr(exc, "body"):
         content["body"] = exc.body
     return JSONResponse(
-        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
         content=content,
     )
 
@@ -191,6 +192,7 @@ app.include_router(note_category_router, prefix="/api")
 app.include_router(category_router, prefix="/api")
 app.include_router(relationship_router, prefix="/api")
 app.include_router(subscription_router, prefix="/api")
+app.include_router(feedback_router, prefix="/api")
 app.include_router(billing_router, prefix="/api")
 
 # Mount SPA at / (after all API routes; unknown paths fall back to index.html for client-side routing)

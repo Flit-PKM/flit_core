@@ -4,6 +4,7 @@ from .category import Category
 from .chunk import Chunk
 from .connection_code import ConnectionCode
 from .connected_app import ConnectedApp
+from .feedback import Feedback
 from .note import Note
 from .note_category import NoteCategory
 from .oauth_access_token import OAuthAccessToken

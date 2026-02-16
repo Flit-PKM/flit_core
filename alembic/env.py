@@ -34,6 +34,7 @@ from models import (  # noqa: F401
     Chunk,
     ConnectedApp,
     ConnectionCode,
+    Feedback,
     Note,
     NoteCategory,
     OAuthAccessToken,
