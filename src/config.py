@@ -128,10 +128,10 @@ class Settings(BaseSettings):
         description="Weeks after which is_deleted rows are permanently removed",
     )
 
-    # Cloudflare Turnstile (optional; required when POST /subscriptions is used)
+    # Cloudflare Turnstile (optional; required for POST /subscriptions, POST /auth/register, POST /password-reset/request when set)
     TURNSTILE_SECRET: Optional[str] = Field(
         default=None,
-        description="Cloudflare Turnstile secret key for subscribe endpoint",
+        description="Cloudflare Turnstile secret key (used for subscriptions, registration, password-reset request)",
     )
 
     # Dodo Payments (optional; required for billing endpoints)
@@ -173,6 +173,62 @@ class Settings(BaseSettings):
     ENCRYPTION_MASTER_KEY: Optional[str] = Field(
         default=None,
         description="Base64-encoded 32-byte key for wrapping per-user DEKs. When unset, encryption is disabled.",
+    )
+
+    # Postmark SMTP (optional; when unset, email sending is disabled)
+    POSTMARK_SMTP_TOKEN: Optional[str] = Field(
+        default=None,
+        description="Postmark Server API Token (used as both username and password). When unset, email is disabled.",
+    )
+    POSTMARK_SMTP_FROM_EMAIL: Optional[str] = Field(
+        default=None,
+        description="Default From address (must match verified Sender Signature in Postmark)",
+    )
+    POSTMARK_SMTP_FROM_NAME: Optional[str] = Field(
+        default=None,
+        description="Default From display name",
+    )
+    POSTMARK_SMTP_HOST: str = Field(
+        default="smtp.postmarkapp.com",
+        description="Postmark SMTP host (transactional or smtp-broadcasts.postmarkapp.com)",
+    )
+    POSTMARK_SMTP_PORT: int = Field(
+        default=2525,
+        ge=1,
+        le=65535,
+        description="Postmark SMTP port (2525 recommended when 25 is blocked)",
+    )
+
+    # Email verification (optional; when VERIFY_EMAIL_BASE_URL unset, send endpoint returns error)
+    VERIFY_EMAIL_BASE_URL: Optional[str] = Field(
+        default=None,
+        description="Base URL for verification links (e.g. https://core.flit-pkm.com). Required for send.",
+    )
+    VERIFY_EMAIL_EXPIRE_HOURS: int = Field(
+        default=24,
+        ge=1,
+        le=168,
+        description="Verification token TTL in hours",
+    )
+    VERIFY_EMAIL_RESEND_COOLDOWN_MINUTES: int = Field(
+        default=5,
+        ge=1,
+        le=60,
+        description="Minimum minutes between verification email resends per user",
+    )
+
+    # Password reset (uses VERIFY_EMAIL_BASE_URL for redirect; same base as verification)
+    PASSWORD_RESET_EXPIRE_HOURS: int = Field(
+        default=1,
+        ge=1,
+        le=24,
+        description="Password reset token TTL in hours",
+    )
+    PASSWORD_RESET_COOLDOWN_MINUTES: int = Field(
+        default=5,
+        ge=1,
+        le=60,
+        description="Minimum minutes between password reset emails per email address",
     )
 
     @field_validator("SECRET_KEY")
@@ -222,6 +278,11 @@ class Settings(BaseSettings):
     def encryption_enabled(self) -> bool:
         """True when encryption at rest is configured."""
         return bool(self.ENCRYPTION_MASTER_KEY)
+
+    @property
+    def email_configured(self) -> bool:
+        """True when Postmark SMTP is configured (token set)."""
+        return bool(self.POSTMARK_SMTP_TOKEN)
 
     @model_validator(mode="after")
     def validate_database_backend(self) -> "Settings":

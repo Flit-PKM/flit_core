@@ -1,5 +1,9 @@
 """Tests for authentication flows."""
 
+from unittest.mock import AsyncMock, MagicMock, patch
+
+from turnstile import TurnstileVerificationError
+
 from datetime import datetime, timezone
 
 import pytest
@@ -49,6 +53,47 @@ async def test_register_duplicate_email(
     
     assert response.status_code == status.HTTP_400_BAD_REQUEST
     assert "already registered" in response.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_register_with_turnstile_required_when_secret_set(
+    test_client: AsyncClient,
+    test_db_session: AsyncSession,
+    sample_user_data: dict,
+):
+    """When TURNSTILE_SECRET is set, registration requires valid token; with mocked token succeeds."""
+    mock_settings = MagicMock()
+    mock_settings.TURNSTILE_SECRET = "test-secret"
+
+    with (
+        patch("routes.auth.settings", mock_settings),
+        patch("routes.auth.verify_turnstile_token", new_callable=AsyncMock) as mock_verify,
+    ):
+        mock_verify.return_value = {"success": True}
+        response = test_client.post(
+            "/api/auth/register",
+            json={**sample_user_data, "cf_turnstile_response": "mock-token"},
+        )
+    assert response.status_code == status.HTTP_201_CREATED
+    assert response.json()["email"] == sample_user_data["email"]
+
+    # Without token returns 400 (mock raises when token is missing)
+    async def verify_side_effect(token, client_ip=None):
+        if not token or not str(token).strip():
+            raise TurnstileVerificationError("Missing Turnstile token")
+        return {"success": True}
+
+    with (
+        patch("routes.auth.settings", mock_settings),
+        patch("routes.auth.verify_turnstile_token", new_callable=AsyncMock, side_effect=verify_side_effect),
+    ):
+        response = test_client.post(
+            "/api/auth/register",
+            json=sample_user_data,
+        )
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    detail = response.json().get("detail", "").lower()
+    assert "verification" in detail or "human" in detail
 
 
 @pytest.mark.asyncio

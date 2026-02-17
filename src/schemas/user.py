@@ -61,6 +61,10 @@ class UserCreate(BaseModel):
         description="User password (minimum 8 characters)",
         examples=["SecurePass123!", "MyP@ssw0rd"]
     )
+    cf_turnstile_response: Optional[str] = Field(
+        None,
+        description="Cloudflare Turnstile response token (required when TURNSTILE_SECRET is set)",
+    )
 
     model_config = ConfigDict(
         json_schema_extra={

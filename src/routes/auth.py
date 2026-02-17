@@ -1,9 +1,10 @@
 from datetime import timedelta
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database.session import get_async_session
+from turnstile import TurnstileVerificationError, verify_turnstile_token
 from schemas.user import UserCreate, UserRead, UserLogin, Token
 from service.user import create_user, get_user_by_email
 from auth.password import get_password_hash, verify_password
@@ -76,11 +77,28 @@ def create_login_response(user: User) -> dict:
 
 @router.post("/register", response_model=UserRead, status_code=status.HTTP_201_CREATED)
 async def register(
+    request: Request,
     user: UserCreate,
     db: AsyncSession = Depends(get_async_session),
 ):
     """Register a new user."""
     logger.info(f"Registration attempt for email: {user.email}")
+
+    # Turnstile verification when TURNSTILE_SECRET is set
+    if settings.TURNSTILE_SECRET:
+        client_ip = request.headers.get("CF-Connecting-IP") or request.headers.get("X-Forwarded-For")
+        if client_ip and "," in client_ip:
+            client_ip = client_ip.split(",")[0].strip()
+        if not client_ip and request.client:
+            client_ip = request.client.host
+        try:
+            await verify_turnstile_token(user.cf_turnstile_response, client_ip)
+        except TurnstileVerificationError as exc:
+            logger.warning("Turnstile verification failed for registration %s: %s", user.email, exc)
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Human verification failed. Please try again.",
+            )
 
     # Check if user already exists
     existing_user = await get_user_by_email(db, user.email)
@@ -118,6 +136,7 @@ async def register(
     user_data = user.model_dump()
     user_data["password_hash"] = hashed_password
     user_data.pop("password")  # Remove plain password
+    user_data.pop("cf_turnstile_response", None)  # Not a user column
 
     # Create the user
     db_user = await create_user(db, user_data)

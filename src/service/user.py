@@ -97,7 +97,14 @@ async def update_user(
     # Normalize email to lowercase and strip whitespace if it's being updated
     if 'email' in user_dict:
         user_dict['email'] = user_dict['email'].lower().strip()
-    
+
+    # When email changes to a different address, reset verification
+    if 'email' in user_dict:
+        new_email = user_dict['email'].lower().strip()
+        current_email = (db_user.email or '').lower().strip()
+        if new_email != current_email:
+            db_user.is_verified = False
+
     # Whitelist only allowed fields: username, email, password_hash, color_scheme
     allowed_fields = {'username', 'email', 'password_hash', 'color_scheme'}
     for field in allowed_fields:

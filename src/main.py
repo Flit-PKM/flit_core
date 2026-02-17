@@ -33,6 +33,8 @@ from routes.category import router as category_router
 from routes.relationship import router as relationship_router
 from routes.subscription import router as subscription_router
 from routes.feedback import router as feedback_router
+from routes.verify import router as verify_router
+from routes.password_reset import router as password_reset_router
 from routes.billing import router as billing_router
 from middleware.logging import RequestLoggingMiddleware, log_exceptions_middleware
 from logging_config import setup_logging
@@ -193,6 +195,8 @@ app.include_router(category_router, prefix="/api")
 app.include_router(relationship_router, prefix="/api")
 app.include_router(subscription_router, prefix="/api")
 app.include_router(feedback_router, prefix="/api")
+app.include_router(verify_router, prefix="/api")
+app.include_router(password_reset_router, prefix="/api")
 app.include_router(billing_router, prefix="/api")
 
 # Mount SPA at / (after all API routes; unknown paths fall back to index.html for client-side routing)

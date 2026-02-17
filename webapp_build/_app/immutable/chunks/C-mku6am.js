@@ -1,1 +1,0 @@
-import{e as h,a5 as k,a6 as S,a0 as T,a7 as c}from"./DCjI9ei8.js";function t(r,i){return r===i||(r==null?void 0:r[c])===i}function A(r={},i,a,q){return h(()=>{var f,s;return k(()=>{f=s,s=[],S(()=>{r!==a(...s)&&(i(r,...s),f&&t(a(...f),r)&&i(null,...f))})}),()=>{T(()=>{s&&t(a(...s),r)&&i(null,...s)})}}),r}export{A as b};
