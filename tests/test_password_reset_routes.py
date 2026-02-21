@@ -32,6 +32,39 @@ async def test_request_reset_unknown_email_returns_sent_true(
 
 
 @pytest.mark.asyncio
+async def test_request_reset_unverified_email_returns_sent_true_no_email_sent(
+    test_client,
+    test_db_session,
+    sample_user_data: dict,
+):
+    """POST /password-reset/request with unverified email returns sent=true but does not send email (no leak)."""
+    user_data = sample_user_data.copy()
+    user_data["password_hash"] = get_password_hash(user_data.pop("password"))
+    user_data["is_verified"] = False
+    await create_user(test_db_session, user_data)
+    await test_db_session.commit()
+
+    mock_settings = MagicMock()
+    mock_settings.VERIFY_EMAIL_BASE_URL = "https://core.flit-pkm.com"
+    mock_settings.PASSWORD_RESET_COOLDOWN_MINUTES = 5
+
+    mock_send_email = AsyncMock(return_value=True)
+
+    with (
+        patch("service.password_reset.settings", mock_settings),
+        patch("service.password_reset.send_email", mock_send_email),
+    ):
+        response = test_client.post(
+            "/api/password-reset/request",
+            json={"email": sample_user_data["email"]},
+        )
+    assert response.status_code == status.HTTP_200_OK
+    data = response.json()
+    assert data["sent"] is True
+    mock_send_email.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_request_reset_base_url_not_configured(
     test_client,
     test_db_session,
@@ -63,6 +96,7 @@ async def test_request_reset_known_email_sends(
     """POST /password-reset/request with known email sends reset link."""
     user_data = sample_user_data.copy()
     user_data["password_hash"] = get_password_hash(user_data.pop("password"))
+    user_data["is_verified"] = True
     await create_user(test_db_session, user_data)
     await test_db_session.commit()
 
@@ -100,6 +134,7 @@ async def test_request_reset_cooldown_returns_sent_false(
     """POST /password-reset/request within cooldown returns sent=false."""
     user_data = sample_user_data.copy()
     user_data["password_hash"] = get_password_hash(user_data.pop("password"))
+    user_data["is_verified"] = True
     user = await create_user(test_db_session, user_data)
     await test_db_session.commit()
 
