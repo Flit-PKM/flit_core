@@ -39,6 +39,10 @@ async def request_password_reset(db: AsyncSession, email: str) -> Tuple[bool, Op
         logger.info("Password reset requested for unknown email (no leak)")
         return True, None
 
+    if not user.is_verified:
+        logger.info("Password reset skipped for unverified email (no leak)")
+        return True, None
+
     # Check cooldown by email
     now = time.time()
     cooldown_seconds = settings.PASSWORD_RESET_COOLDOWN_MINUTES * 60
