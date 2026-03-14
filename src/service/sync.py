@@ -24,6 +24,11 @@ from service.encryption import (
     encrypt_note_fields,
     is_encryption_enabled_for_user,
 )
+from service.note_persistence import (
+    insert_note as persistence_insert_note,
+    soft_delete_note as persistence_soft_delete_note,
+    update_note as persistence_update_note,
+)
 from schemas.sync import (
     CategoryVersion,
     ChunkVersion,
@@ -179,7 +184,10 @@ async def sync_notes(
                     user_id=user_id,
                 )
                 dump = note_data.model_dump()
-                if await is_encryption_enabled_for_user(session, user_id):
+                encryption_enabled = await is_encryption_enabled_for_user(
+                    session, user_id
+                )
+                if encryption_enabled:
                     title_enc, content_enc = await encrypt_note_fields(
                         session, user_id, dump["title"], dump["content"]
                     )
@@ -190,9 +198,13 @@ async def sync_notes(
                 db_note.version = note_sync.version
                 if note_sync.is_deleted:
                     db_note.is_deleted = True
-                session.add(db_note)
-                await session.flush()
-                await session.refresh(db_note)
+                await persistence_insert_note(
+                    session,
+                    db_note,
+                    plaintext_title=note_sync.title,
+                    plaintext_content=note_sync.content,
+                    encryption_enabled=encryption_enabled,
+                )
 
                 results.append(
                     SyncPushResult(
@@ -242,11 +254,15 @@ async def sync_notes(
                     )
                 elif note_sync.version > db_note.version:
                     # App version is newer, accept update
+                    encryption_enabled = await is_encryption_enabled_for_user(
+                        session, user_id
+                    )
                     if note_sync.is_deleted:
-                        db_note.is_deleted = True
-                        db_note.version = note_sync.version
+                        await persistence_soft_delete_note(
+                            session, db_note, version=note_sync.version
+                        )
                     else:
-                        if await is_encryption_enabled_for_user(session, user_id):
+                        if encryption_enabled:
                             title_enc, content_enc = await encrypt_note_fields(
                                 session, user_id, note_sync.title, note_sync.content
                             )
@@ -258,7 +274,13 @@ async def sync_notes(
                             db_note.content = note_sync.content
                         db_note.type = note_sync.type
                         db_note.version = note_sync.version
-                    await session.flush()
+                        await persistence_update_note(
+                            session,
+                            db_note,
+                            plaintext_title=note_sync.title,
+                            plaintext_content=note_sync.content,
+                            encryption_enabled=encryption_enabled,
+                        )
 
                     results.append(
                         SyncPushResult(
@@ -272,10 +294,13 @@ async def sync_notes(
                     )
                 else:
                     # Same version, check if content differs or is_deleted (optimistic locking)
+                    encryption_enabled = await is_encryption_enabled_for_user(
+                        session, user_id
+                    )
                     if note_sync.is_deleted:
-                        db_note.is_deleted = True
-                        db_note.version = note_sync.version
-                        await session.flush()
+                        await persistence_soft_delete_note(
+                            session, db_note, version=note_sync.version
+                        )
                         results.append(
                             SyncPushResult(
                                 core_id=db_note.id,
@@ -292,7 +317,7 @@ async def sync_notes(
                         or db_note.type != note_sync.type
                     ):
                         # Content differs, accept update and increment version
-                        if await is_encryption_enabled_for_user(session, user_id):
+                        if encryption_enabled:
                             title_enc, content_enc = await encrypt_note_fields(
                                 session, user_id, note_sync.title, note_sync.content
                             )
@@ -306,7 +331,13 @@ async def sync_notes(
                         if note_sync.is_deleted:
                             db_note.is_deleted = True
                         db_note.version += 1
-                        await session.flush()
+                        await persistence_update_note(
+                            session,
+                            db_note,
+                            plaintext_title=note_sync.title,
+                            plaintext_content=note_sync.content,
+                            encryption_enabled=encryption_enabled,
+                        )
 
                         results.append(
                             SyncPushResult(

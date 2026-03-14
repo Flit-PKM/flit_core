@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import List
 
-from sqlalchemy import or_, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from exceptions import NotFoundError
@@ -16,24 +16,35 @@ from service.encryption import (
     encrypt_note_fields,
     is_encryption_enabled_for_user,
 )
+from service.note_persistence import insert_note as persistence_insert_note
+from service.note_persistence import soft_delete_note as persistence_soft_delete_note
+from service.note_persistence import update_note as persistence_update_note
+from service.notesearch import search_notes
 
 logger = get_logger(__name__)
 
 
 async def create_note(session: AsyncSession, data: NoteCreate) -> Note:
     dump = data.model_dump()
-    if await is_encryption_enabled_for_user(session, data.user_id):
+    plaintext_title = dump["title"]
+    plaintext_content = dump["content"]
+    encryption_enabled = await is_encryption_enabled_for_user(session, data.user_id)
+    if encryption_enabled:
         title_enc, content_enc = await encrypt_note_fields(
-            session, data.user_id, dump["title"], dump["content"]
+            session, data.user_id, plaintext_title, plaintext_content
         )
         dump["title"] = title_enc
         dump["content"] = content_enc
         dump["encryption_version"] = 1
     db_note = Note(**dump)
-    session.add(db_note)
-    await session.flush()
-    await session.refresh(db_note)
-    if await is_encryption_enabled_for_user(session, db_note.user_id):
+    await persistence_insert_note(
+        session,
+        db_note,
+        plaintext_title=plaintext_title,
+        plaintext_content=plaintext_content,
+        encryption_enabled=encryption_enabled,
+    )
+    if encryption_enabled:
         await decrypt_note_fields(session, db_note)
     logger.info("Note created: id=%s, user_id=%s", db_note.id, db_note.user_id)
     return db_note
@@ -65,6 +76,17 @@ async def get_notes_by_user(
     category_name: str | None = None,
     search: str | None = None,
 ) -> List[Note]:
+    encryption_enabled = await is_encryption_enabled_for_user(session, user_id)
+    if search and not encryption_enabled:
+        notes = await search_notes(
+            session,
+            user_id,
+            search,
+            category_name=category_name,
+            skip=skip,
+            limit=limit,
+        )
+        return notes
     stmt = select(Note).where(
         Note.user_id == user_id,
         Note.is_deleted == False,
@@ -81,18 +103,10 @@ async def get_notes_by_user(
             )
             .distinct()
         )
-    if search and not await is_encryption_enabled_for_user(session, user_id):
-        pattern = f"%{search}%"
-        stmt = stmt.where(
-            or_(
-                Note.title.ilike(pattern),
-                Note.content.ilike(pattern),
-            )
-        )
     stmt = stmt.order_by(Note.updated_at.desc()).offset(skip).limit(limit)
     result = await session.execute(stmt)
     notes = list(result.scalars().unique().all() if category_name else result.scalars().all())
-    if await is_encryption_enabled_for_user(session, user_id):
+    if encryption_enabled:
         for note in notes:
             await decrypt_note_fields(session, note)
     return notes
@@ -117,7 +131,8 @@ async def update_note(
 ) -> Note:
     note = await get_note_or_404(session, note_id)
     payload = data.model_dump(exclude_unset=True)
-    if await is_encryption_enabled_for_user(session, note.user_id) and ("title" in payload or "content" in payload):
+    encryption_enabled = await is_encryption_enabled_for_user(session, note.user_id)
+    if encryption_enabled and ("title" in payload or "content" in payload):
         title = payload.get("title", note.title)
         content = payload.get("content", note.content)
         title_enc, content_enc = await encrypt_note_fields(
@@ -126,13 +141,21 @@ async def update_note(
         payload["title"] = title_enc
         payload["content"] = content_enc
         payload["encryption_version"] = 1
+        plaintext_title, plaintext_content = title, content
+    else:
+        plaintext_title = payload.get("title", note.title)
+        plaintext_content = payload.get("content", note.content)
     for field, value in payload.items():
         setattr(note, field, value)
-    # Increment version on update
     note.version += 1
-    await session.flush()
-    await session.refresh(note)
-    if await is_encryption_enabled_for_user(session, note.user_id):
+    await persistence_update_note(
+        session,
+        note,
+        plaintext_title=plaintext_title,
+        plaintext_content=plaintext_content,
+        encryption_enabled=encryption_enabled,
+    )
+    if encryption_enabled:
         await decrypt_note_fields(session, note)
     logger.info("Note updated: id=%s, version=%s", note_id, note.version)
     return note
@@ -146,7 +169,5 @@ async def delete_note(session: AsyncSession, note_id: int, user_id: int) -> None
     note = result.scalar_one_or_none()
     if not note:
         raise NotFoundError("Note not found")
-    note.is_deleted = True
-    note.version += 1
-    await session.flush()
+    await persistence_soft_delete_note(session, note)
     logger.info("Note soft-deleted: id=%s", note_id)

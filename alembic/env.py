@@ -37,6 +37,7 @@ from models import (  # noqa: F401
     Feedback,
     Note,
     NoteCategory,
+    NoteSearch,
     OAuthAccessToken,
     OAuthRefreshToken,
     PlanSubscription,

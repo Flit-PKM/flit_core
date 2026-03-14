@@ -7,6 +7,7 @@ from .connected_app import ConnectedApp
 from .feedback import Feedback
 from .note import Note
 from .note_category import NoteCategory
+from .notesearch import NoteSearch
 from .oauth_access_token import OAuthAccessToken
 from .oauth_refresh_token import OAuthRefreshToken
 from .plan_subscription import PlanSubscription
