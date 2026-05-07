@@ -1,0 +1,1 @@
+import{H as e}from"../chunks/BUApaBEI.js";function t(o,r){throw new e(o,r)}const n=async()=>{throw t(404,"Page not found")},l=Object.freeze(Object.defineProperty({__proto__:null,load:n},Symbol.toStringTag,{value:"Module"}));export{l as universal};
