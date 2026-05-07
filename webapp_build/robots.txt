@@ -1,3 +1,6 @@
 # allow crawling everything by default
 User-agent: *
-Disallow:
+Disallow: /notes
+Disallow: /profile
+
+Sitemap: https://core.flit-pkm.com/sitemap.xml

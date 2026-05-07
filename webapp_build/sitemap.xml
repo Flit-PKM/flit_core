@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+	<url>
+		<loc>https://core.flit-pkm.com/</loc>
+		<changefreq>weekly</changefreq>
+	</url>
+	<url>
+		<loc>https://core.flit-pkm.com/about</loc>
+		<changefreq>monthly</changefreq>
+	</url>
+	<url>
+		<loc>https://core.flit-pkm.com/terms</loc>
+		<changefreq>monthly</changefreq>
+	</url>
+	<url>
+		<loc>https://core.flit-pkm.com/login</loc>
+		<changefreq>monthly</changefreq>
+	</url>
+	<url>
+		<loc>https://core.flit-pkm.com/register</loc>
+		<changefreq>monthly</changefreq>
+	</url>
+	<url>
+		<loc>https://core.flit-pkm.com/forgot-password</loc>
+		<changefreq>monthly</changefreq>
+	</url>
+	<url>
+		<loc>https://core.flit-pkm.com/reset-password</loc>
+		<changefreq>monthly</changefreq>
+	</url>
+</urlset>
