@@ -39,6 +39,11 @@ class AccessCode(Base):
         nullable=True,
         index=True,
     )
+    revoked_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        index=True,
+    )
 
     grant = relationship(
         "AccessCodeGrant",

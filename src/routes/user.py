@@ -1,6 +1,6 @@
-from typing import List
+from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status, Response, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, status, Response, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database.session import get_async_session
@@ -11,6 +11,7 @@ from schemas.user import (
     UserRead,
     UserSubscriptionRead,
 )
+from schemas.user_prune import UserPruneRequest, UserPruneResponse
 from service.access_code import get_active_access_grant
 from service.billing import SUBSCRIPTION_STATUS_ACTIVE, get_subscription_for_user
 from service.user import (
@@ -22,6 +23,7 @@ from service.user import (
     grant_superuser,
     revoke_superuser,
 )
+from service.user_prune import prune_stale_unverified_users
 from auth.dependencies import get_current_active_user, get_current_superuser
 from models.user import User
 from logging_config import get_logger
@@ -48,15 +50,56 @@ async def get_all_users_endpoint(
     db: AsyncSession = Depends(get_async_session),
     skip: int = 0,
     limit: int = 10,
+    search: Optional[str] = Query(None, description="Case-insensitive match on email or username"),
+    is_verified: Optional[bool] = Query(None),
+    is_active: Optional[bool] = Query(None),
+    is_superuser: Optional[bool] = Query(None),
 ):
     logger.info(
         f"GET /users/ - Superuser {current_user.id} fetching users list - "
         f"Path: {request.url.path}, Query: {request.url.query}, skip: {skip}, limit: {limit}"
     )
-    users = await get_all_users(db, skip, limit)
+    users = await get_all_users(
+        db,
+        skip,
+        limit,
+        search=search,
+        is_verified=is_verified,
+        is_active=is_active,
+        is_superuser=is_superuser,
+    )
     logger.info(f"GET /users/ - Returned {len(users)} users to superuser {current_user.id}")
     return users
 
+
+@router.post("/prune", response_model=UserPruneResponse)
+async def prune_users_endpoint(
+    request: Request,
+    body: UserPruneRequest,
+    current_user: User = Depends(get_current_superuser),
+    db: AsyncSession = Depends(get_async_session),
+):
+    """Hard-delete stale unverified users (excludes superusers and active subscriptions)."""
+    matched, deleted, sample = await prune_stale_unverified_users(
+        db,
+        body.inactive_for_days,
+        dry_run=body.dry_run,
+    )
+    logger.info(
+        "POST /users/prune superuser=%s inactive_for_days=%s dry_run=%s matched=%s deleted=%s",
+        current_user.id,
+        body.inactive_for_days,
+        body.dry_run,
+        matched,
+        deleted,
+    )
+    return UserPruneResponse(
+        matched_count=matched,
+        deleted_count=deleted,
+        sample_user_ids=sample,
+    )
+
+@current_user_router.get("", response_model=UserRead)
 @current_user_router.get("/", response_model=UserRead)
 async def get_current_user_endpoint(
     request: Request,
@@ -157,6 +200,7 @@ async def get_user_endpoint(
         }
     )
 
+@current_user_router.patch("", response_model=UserRead)
 @current_user_router.patch("/", response_model=UserRead)
 async def update_current_user_endpoint(
     request: Request,

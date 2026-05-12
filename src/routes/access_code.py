@@ -1,6 +1,7 @@
 """Access code routes: superuser creates codes, user activates."""
 
 import logging
+from typing import List
 
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,9 +13,15 @@ from models.user import User
 from schemas.access_code import (
     AccessCodeActivateRequest,
     AccessCodeActivateResponse,
+    AccessCodeAdminRead,
     AccessCodeCreateResponse,
 )
-from service.access_code import activate_code, create_access_code
+from service.access_code import (
+    activate_code,
+    create_access_code,
+    list_access_codes,
+    revoke_access_code,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +29,26 @@ router = APIRouter(
     prefix="/access-codes",
     tags=["access-codes"],
 )
+
+
+@router.get("", response_model=List[AccessCodeAdminRead])
+async def list_access_codes_endpoint(
+    current_user: User = Depends(get_current_superuser),
+    db: AsyncSession = Depends(get_async_session),
+    skip: int = 0,
+    limit: int = 50,
+) -> List[AccessCodeAdminRead]:
+    return await list_access_codes(db, skip=skip, limit=limit)
+
+
+@router.post("/{code}/revoke", response_model=AccessCodeAdminRead)
+async def revoke_access_code_endpoint(
+    code: str,
+    current_user: User = Depends(get_current_superuser),
+    db: AsyncSession = Depends(get_async_session),
+) -> AccessCodeAdminRead:
+    row = await revoke_access_code(db, code.strip())
+    return AccessCodeAdminRead.model_validate(row)
 
 
 @router.get(

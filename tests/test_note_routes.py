@@ -26,6 +26,65 @@ def _login(test_client, email: str, password: str) -> str:
 
 
 @pytest.mark.asyncio
+async def test_note_create_and_update_display_metadata(
+    test_client,
+    test_db_session: AsyncSession,
+    sample_user_data: dict,
+):
+    """Notes default display metadata and allow explicit create/update values."""
+    user_data = sample_user_data.copy()
+    user_data["password_hash"] = get_password_hash(user_data.pop("password"))
+    await create_user(test_db_session, user_data)
+    await test_db_session.commit()
+
+    token = _login(test_client, sample_user_data["email"], sample_user_data["password"])
+    headers = {"Authorization": f"Bearer {token}"}
+
+    r = test_client.post(
+        "/api/notes",
+        json={
+            "title": "Default metadata",
+            "content": "Body",
+            "type": "BASE",
+        },
+        headers=headers,
+    )
+    assert r.status_code == status.HTTP_201_CREATED
+    data = r.json()
+    assert data["pinned"] is False
+    assert data["color"] == ""
+
+    r = test_client.post(
+        "/api/notes",
+        json={
+            "title": "Pinned metadata",
+            "content": "Body",
+            "type": "BASE",
+            "pinned": True,
+            "color": "#FDE68A",
+        },
+        headers=headers,
+    )
+    assert r.status_code == status.HTTP_201_CREATED
+    data = r.json()
+    assert data["pinned"] is True
+    assert data["color"] == "#FDE68A"
+
+    r = test_client.put(
+        f"/api/notes/{data['id']}",
+        json={
+            "pinned": False,
+            "color": "",
+        },
+        headers=headers,
+    )
+    assert r.status_code == status.HTTP_200_OK
+    data = r.json()
+    assert data["pinned"] is False
+    assert data["color"] == ""
+
+
+@pytest.mark.asyncio
 async def test_list_notes_filter_by_category_name(
     test_client,
     test_db_session: AsyncSession,

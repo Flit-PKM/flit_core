@@ -5,6 +5,8 @@ from .chunk import Chunk
 from .connection_code import ConnectionCode
 from .connected_app import ConnectedApp
 from .feedback import Feedback
+from .feedback_response import FeedbackResponse
+from .newsletter_campaign import NewsletterCampaign, NewsletterStatus
 from .note import Note
 from .note_category import NoteCategory
 from .notesearch import NoteSearch
@@ -12,6 +14,7 @@ from .oauth_access_token import OAuthAccessToken
 from .oauth_refresh_token import OAuthRefreshToken
 from .plan_subscription import PlanSubscription
 from .relationship import Relationship
+from .revoked_jwt import RevokedJwt
 from .subscription import Subscription
 from .superuser import Superuser
 from .user import User

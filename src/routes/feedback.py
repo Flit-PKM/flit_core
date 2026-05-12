@@ -1,16 +1,27 @@
 """Feedback routes: public POST, superuser-only GET and DELETE."""
 
-from typing import List
+from typing import List, Optional
 
-from fastapi import APIRouter, Depends, Request, Response, status
+from fastapi import APIRouter, Depends, Query, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth.dependencies import get_current_superuser
 from database.session import get_async_session
 from logging_config import get_logger
 from models.user import User
-from schemas.feedback import FeedbackCreate, FeedbackRead
-from service.feedback import create_feedback, delete_feedback, list_feedbacks
+from schemas.feedback import (
+    FeedbackCreate,
+    FeedbackRead,
+    FeedbackResponseCreate,
+    FeedbackResponseRead,
+)
+from service.feedback import (
+    create_feedback,
+    create_feedback_response,
+    delete_feedback,
+    list_feedback_responses,
+    list_feedbacks,
+)
 
 logger = get_logger(__name__)
 
@@ -40,17 +51,43 @@ async def list_feedback_endpoint(
     db: AsyncSession = Depends(get_async_session),
     skip: int = 0,
     limit: int = 100,
+    search: Optional[str] = Query(None, description="Case-insensitive substring match on content"),
 ):
     """List all feedback. Superuser only."""
     logger.info(
         f"GET /feedback - Superuser {current_user.id} fetching list - "
         f"Path: {request.url.path}, skip: {skip}, limit: {limit}"
     )
-    feedbacks = await list_feedbacks(db, skip=skip, limit=limit)
+    feedbacks = await list_feedbacks(db, skip=skip, limit=limit, search=search)
     logger.info(
         f"GET /feedback - Returned {len(feedbacks)} feedback items to superuser {current_user.id}"
     )
     return feedbacks
+
+
+@router.get("/{feedback_id}/responses", response_model=List[FeedbackResponseRead])
+async def list_feedback_responses_endpoint(
+    feedback_id: int,
+    current_user: User = Depends(get_current_superuser),
+    db: AsyncSession = Depends(get_async_session),
+):
+    return await list_feedback_responses(db, feedback_id)
+
+
+@router.post(
+    "/{feedback_id}/responses",
+    response_model=FeedbackResponseRead,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_feedback_response_endpoint(
+    feedback_id: int,
+    body: FeedbackResponseCreate,
+    current_user: User = Depends(get_current_superuser),
+    db: AsyncSession = Depends(get_async_session),
+):
+    return await create_feedback_response(
+        db, feedback_id, current_user.id, body.body
+    )
 
 
 @router.delete("/{feedback_id}", status_code=status.HTTP_204_NO_CONTENT)

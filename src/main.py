@@ -19,6 +19,7 @@ class SpaStaticFiles(StaticFiles):
             return super().lookup_path("index.html")
         return full_path, stat_result
 
+from routes.admin import router as admin_router
 from routes.access_code import router as access_code_router
 from routes.user import router as user_router, current_user_router
 from routes.auth import router as auth_router
@@ -181,6 +182,7 @@ app.middleware("http")(log_exceptions_middleware)
 app.add_middleware(RequestLoggingMiddleware)
 
 app.include_router(auth_router, prefix="/api")
+app.include_router(admin_router, prefix="/api")
 app.include_router(access_code_router, prefix="/api")
 app.include_router(current_user_router, prefix="/api")
 app.include_router(user_router, prefix="/api")

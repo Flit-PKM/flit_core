@@ -4,7 +4,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import Boolean, String, func
+from sqlalchemy import Boolean, DateTime, String, func
 
 if TYPE_CHECKING:
     from .user_encryption_key import UserEncryptionKey
@@ -40,6 +40,11 @@ class User(Base):
     )
     color_scheme: Mapped[ColorScheme] = mapped_column(
         String(20), nullable=False, default=ColorScheme.DEFAULT
+    )
+    last_login: Mapped[datetime] = mapped_column(
+        DateTime(),
+        nullable=False,
+        server_default=func.now(),
     )
     created_at: Mapped[datetime] = mapped_column(
         server_default=func.now(), nullable=False

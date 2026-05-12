@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from enum import StrEnum
 
-from sqlalchemy import Enum, ForeignKey, SmallInteger, String, Text, func
+from sqlalchemy import Boolean, Enum, ForeignKey, SmallInteger, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .base import Base
@@ -26,6 +26,8 @@ class Note(Base):
         String(20), nullable=False, index=True, default=NoteType.BASE
     )
     version: Mapped[int] = mapped_column(nullable=False, default=1)
+    pinned: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    color: Mapped[str] = mapped_column(String, nullable=False, default="")
     created_at: Mapped[datetime] = mapped_column(
         server_default=func.now(), nullable=False
     )
@@ -35,8 +37,13 @@ class Note(Base):
 
     is_deleted: Mapped[bool] = mapped_column(default=False, nullable=False, index=True)
 
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
     source_id: Mapped[int | None] = mapped_column(
-        ForeignKey("connected_apps.id"), index=True, nullable=True
+        ForeignKey("connected_apps.id", ondelete="SET NULL"),
+        index=True,
+        nullable=True,
     )
     encryption_version: Mapped[int | None] = mapped_column(SmallInteger, nullable=True, default=None)

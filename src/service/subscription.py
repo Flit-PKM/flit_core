@@ -34,11 +34,15 @@ async def get_all_subscriptions(
     db: AsyncSession,
     skip: int = 0,
     limit: int = 100,
+    search: Optional[str] = None,
 ) -> List[Subscription]:
     """Return all subscriptions with optional pagination."""
-    result = await db.execute(
-        select(Subscription).offset(skip).limit(limit).order_by(Subscription.created_at.desc())
-    )
+    q = select(Subscription)
+    if search and search.strip():
+        term = f"%{search.strip().lower()}%"
+        q = q.where(func.lower(Subscription.email).like(term))
+    q = q.offset(skip).limit(limit).order_by(Subscription.created_at.desc())
+    result = await db.execute(q)
     return list(result.scalars().all())
 
 

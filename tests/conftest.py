@@ -17,6 +17,8 @@ from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.pool import StaticPool
 
+import models  # noqa: F401 — register all models on Base.metadata before create_all
+
 from main import app
 from database.session import get_async_session
 from models.base import Base
@@ -69,13 +71,18 @@ async def test_db_session() -> AsyncGenerator[AsyncSession, None]:
 def test_client(test_db_session: AsyncSession) -> TestClient:
     """Create a test client with overridden database session."""
     async def override_get_session():
-        yield test_db_session
-    
+        try:
+            yield test_db_session
+            await test_db_session.commit()
+        except Exception:
+            await test_db_session.rollback()
+            raise
+
     app.dependency_overrides[get_async_session] = override_get_session
-    
+
     with TestClient(app) as client:
         yield client
-    
+
     app.dependency_overrides.clear()
 
 

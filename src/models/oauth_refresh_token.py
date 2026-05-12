@@ -14,12 +14,17 @@ class OAuthRefreshToken(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     token: Mapped[str] = mapped_column(Text, unique=True, nullable=False, index=True)
     access_token_id: Mapped[int] = mapped_column(
-        ForeignKey("oauth_access_tokens.id"), nullable=False
+        ForeignKey("oauth_access_tokens.id", ondelete="CASCADE"),
+        nullable=False,
     )
     connected_app_id: Mapped[int] = mapped_column(
-        ForeignKey("connected_apps.id"), nullable=False
+        ForeignKey("connected_apps.id", ondelete="CASCADE"),
+        nullable=False,
     )
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
     expires_at: Mapped[datetime] = mapped_column(nullable=False)
     revoked_at: Mapped[datetime | None] = mapped_column(nullable=True)
     created_at: Mapped[datetime] = mapped_column(nullable=False)

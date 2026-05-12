@@ -248,6 +248,16 @@ class NoteSync(BaseModel):
         description="Type of note: BASE (default), INSIGHT, or SUMMARY",
         examples=[NoteType.BASE, NoteType.INSIGHT]
     )
+    pinned: bool = Field(
+        False,
+        description="Whether the note is pinned for display",
+        examples=[False, True],
+    )
+    color: str = Field(
+        "",
+        description="Display color for the note",
+        examples=["", "#FDE68A", "blue"],
+    )
     version: int = Field(
         ...,
         ge=1,

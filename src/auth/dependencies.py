@@ -5,9 +5,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from database.session import get_async_session
 from models.user import User
-from auth.jwt import verify_token
+from jose import jwt as jose_jwt
+
+from auth.jwt import decode_login_token_claims
 from service.billing import require_active_subscription
 from service.oauth import validate_access_token
+from service.revoked_jwt import is_jti_revoked
 from service.user import get_user, get_user_by_email
 
 security = HTTPBearer()
@@ -57,8 +60,21 @@ async def get_current_user(
     )
 
     token = credentials.credentials
-    username = verify_token(token)
-    if username is None:
+    payload = decode_login_token_claims(token)
+    if payload is None:
+        raise credentials_exception
+
+    # jti may not appear on all jwt.decode code paths; unverified claims are safe after verify above.
+    raw_claims = jose_jwt.get_unverified_claims(token)
+    jti = raw_claims.get("jti") or payload.get("jti")
+    if not jti:
+        raise credentials_exception
+    revoked = await is_jti_revoked(db, str(jti))
+    if revoked:
+        raise credentials_exception
+
+    username = payload.get("sub")
+    if username is None or not isinstance(username, str):
         raise credentials_exception
 
     # Get user by email (username in JWT is email)

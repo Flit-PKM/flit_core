@@ -14,13 +14,18 @@ class OAuthAccessToken(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     token: Mapped[str] = mapped_column(Text, unique=True, nullable=False, index=True)
     connected_app_id: Mapped[int] = mapped_column(
-        ForeignKey("connected_apps.id"), nullable=False
+        ForeignKey("connected_apps.id", ondelete="CASCADE"),
+        nullable=False,
     )
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
     scopes: Mapped[str] = mapped_column(String(255), nullable=False)  # Space-separated
     expires_at: Mapped[datetime] = mapped_column(nullable=False)
     refresh_token_id: Mapped[int | None] = mapped_column(
-        ForeignKey("oauth_refresh_tokens.id", use_alter=True), nullable=True
+        ForeignKey("oauth_refresh_tokens.id", use_alter=True, ondelete="SET NULL"),
+        nullable=True,
     )
     revoked: Mapped[bool] = mapped_column(default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(nullable=False)

@@ -14,7 +14,10 @@ class ConnectedApp(Base):
     __tablename__ = "connected_apps"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
     app_slug: Mapped[str] = mapped_column(String(64), nullable=False)
     device_name: Mapped[str] = mapped_column(String(255), nullable=False)
     platform: Mapped[str | None] = mapped_column(String(64), nullable=True)

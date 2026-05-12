@@ -1,5 +1,6 @@
+from datetime import datetime, timezone
 from typing import List, Optional, Union, Dict, Any
-from sqlalchemy import select, func
+from sqlalchemy import exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.superuser import Superuser
@@ -30,6 +31,9 @@ async def create_user(
     # Superuser is managed only via the superusers table; never set from creation dict
     user_dict.pop("is_superuser", None)
 
+    if user_dict.get("last_login") is None:
+        user_dict["last_login"] = datetime.now(timezone.utc).replace(tzinfo=None)
+
     logger.debug(f"Creating user with email: {user_dict.get('email')}")
     db_user = User(**user_dict)
     session.add(db_user)
@@ -56,13 +60,44 @@ async def get_user_by_email(session: AsyncSession, email: str) -> Optional[User]
         logger.debug(f"User not found for email: {normalized_email}")
     return user
 
+async def touch_last_login(db: AsyncSession, user_id: int) -> None:
+    """Set last_login to now as naive UTC (matches users.created_at / timestamp without time zone)."""
+    result = await db.execute(select(User).where(User.id == user_id))
+    db_user = result.scalar_one_or_none()
+    if not db_user:
+        return
+    db_user.last_login = datetime.now(timezone.utc).replace(tzinfo=None)
+    await db.flush()
+
+
 async def get_all_users(
     db: AsyncSession,
     skip: int = 0,
     limit: int = 10,
+    search: Optional[str] = None,
+    is_verified: Optional[bool] = None,
+    is_active: Optional[bool] = None,
+    is_superuser: Optional[bool] = None,
 ) -> List[User]:
-    result = await db.execute(select(User).offset(skip).limit(limit))
-    return result.scalars().all()
+    q = select(User)
+    if is_verified is not None:
+        q = q.where(User.is_verified == is_verified)
+    if is_active is not None:
+        q = q.where(User.is_active == is_active)
+    if is_superuser is not None:
+        has_su = exists(select(Superuser.user_id).where(Superuser.user_id == User.id))
+        q = q.where(has_su if is_superuser else ~has_su)
+    if search and search.strip():
+        term = f"%{search.strip().lower()}%"
+        q = q.where(
+            or_(
+                func.lower(User.email).like(term),
+                func.lower(User.username).like(term),
+            )
+        )
+    q = q.order_by(User.id).offset(skip).limit(limit)
+    result = await db.execute(q)
+    return list(result.scalars().all())
 
 async def update_user(
     db: AsyncSession,

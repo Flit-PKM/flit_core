@@ -125,6 +125,10 @@ class UserAccessGrantRead(BaseModel):
 
 class UserRead(UserBase):
     id: int = Field(..., description="Unique user identifier", examples=[1, 42])
+    last_login: datetime = Field(
+        ...,
+        description="Last account activity instant (naive UTC ISO); updated on login and aligned with server data",
+    )
     created_at: datetime = Field(..., description="Account creation timestamp", examples=["2024-01-15T10:30:00Z"])
     updated_at: datetime = Field(..., description="Last account update timestamp", examples=["2024-01-20T14:22:00Z"])
     subscription: Optional[UserSubscriptionRead] = Field(

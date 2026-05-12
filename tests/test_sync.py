@@ -238,6 +238,100 @@ async def test_push_creates_note_when_core_id_none(
     assert db_note is not None
     assert db_note.title == "Filled In"
     assert db_note.content == "Body"
+    assert db_note.pinned is False
+    assert db_note.color == ""
+
+
+@pytest.mark.asyncio
+async def test_push_creates_note_with_display_metadata(
+    test_db_session: AsyncSession,
+    sync_test_data: dict,
+):
+    """Push with core_id=None stores note display metadata."""
+    user = sync_test_data["user"]
+    app = sync_test_data["connected_app"]
+
+    results = await sync_notes(
+        test_db_session,
+        user_id=user.id,
+        connected_app_id=app.id,
+        notes=[
+            NoteSync(
+                core_id=None,
+                title="Pinned Note",
+                content="Body",
+                type="BASE",
+                pinned=True,
+                color="#FDE68A",
+                version=1,
+                is_deleted=False,
+            )
+        ],
+    )
+
+    assert len(results) == 1
+    assert results[0].status == "created"
+
+    r = await test_db_session.execute(select(Note).where(Note.id == results[0].core_id))
+    db_note = r.scalar_one_or_none()
+    assert db_note is not None
+    assert db_note.pinned is True
+    assert db_note.color == "#FDE68A"
+
+
+@pytest.mark.asyncio
+async def test_push_same_version_updates_display_metadata(
+    test_db_session: AsyncSession,
+    sync_test_data: dict,
+):
+    """Same-version sync updates and bumps version when display metadata differs."""
+    user = sync_test_data["user"]
+    app = sync_test_data["connected_app"]
+
+    note = Note(
+        title="Metadata Note",
+        content="Content",
+        type="BASE",
+        version=1,
+        user_id=user.id,
+        source_id=app.id,
+        is_deleted=False,
+        pinned=False,
+        color="",
+    )
+    test_db_session.add(note)
+    await test_db_session.flush()
+    note_id = note.id
+    await test_db_session.commit()
+
+    results = await sync_notes(
+        test_db_session,
+        user_id=user.id,
+        connected_app_id=app.id,
+        notes=[
+            NoteSync(
+                core_id=note_id,
+                title="Metadata Note",
+                content="Content",
+                type="BASE",
+                pinned=True,
+                color="#FDE68A",
+                version=1,
+                is_deleted=False,
+            )
+        ],
+    )
+
+    assert len(results) == 1
+    assert results[0].status == "updated"
+    assert results[0].server_version == 2
+
+    r = await test_db_session.execute(select(Note).where(Note.id == note_id))
+    updated = r.scalar_one_or_none()
+    assert updated is not None
+    assert updated.pinned is True
+    assert updated.color == "#FDE68A"
+    assert updated.version == 2
 
 
 @pytest.mark.asyncio

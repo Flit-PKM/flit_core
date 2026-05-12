@@ -1,5 +1,8 @@
 """Schemas for access code create and activate endpoints."""
 
+from datetime import datetime
+from typing import Optional
+
 from pydantic import BaseModel, Field
 
 
@@ -22,3 +25,19 @@ class AccessCodeActivateResponse(BaseModel):
 
     expires_at: str = Field(..., description="When the grant expires (ISO 8601)")
     includes_encryption: bool = Field(..., description="Whether the grant includes encryption")
+
+
+class AccessCodeAdminRead(BaseModel):
+    """Access code row for superuser listing."""
+
+    id: int
+    code: str
+    period_weeks: int
+    includes_encryption: bool
+    created_at: datetime
+    created_by: Optional[int]
+    activated_at: Optional[datetime]
+    activated_by: Optional[int]
+    revoked_at: Optional[datetime]
+
+    model_config = {"from_attributes": True}

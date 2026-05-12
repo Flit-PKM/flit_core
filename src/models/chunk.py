@@ -35,6 +35,8 @@ class Chunk(Base):
     is_deleted: Mapped[bool] = mapped_column(default=False, nullable=False, index=True)
 
     note_id: Mapped[int] = mapped_column(
-        ForeignKey("notes.id"), nullable=False, index=True
+        ForeignKey("notes.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
     encryption_version: Mapped[int | None] = mapped_column(SmallInteger, nullable=True, default=None)

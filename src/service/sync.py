@@ -180,6 +180,8 @@ async def sync_notes(
                     title=note_sync.title,
                     content=note_sync.content,
                     type=note_sync.type,
+                    pinned=note_sync.pinned,
+                    color=note_sync.color,
                     source_id=connected_app_id,
                     user_id=user_id,
                 )
@@ -273,6 +275,8 @@ async def sync_notes(
                             db_note.title = note_sync.title
                             db_note.content = note_sync.content
                         db_note.type = note_sync.type
+                        db_note.pinned = note_sync.pinned
+                        db_note.color = note_sync.color
                         db_note.version = note_sync.version
                         await persistence_update_note(
                             session,
@@ -315,8 +319,10 @@ async def sync_notes(
                         db_note.title != note_sync.title
                         or db_note.content != note_sync.content
                         or db_note.type != note_sync.type
+                        or db_note.pinned != note_sync.pinned
+                        or db_note.color != note_sync.color
                     ):
-                        # Content differs, accept update and increment version
+                        # Note fields differ, accept update and increment version.
                         if encryption_enabled:
                             title_enc, content_enc = await encrypt_note_fields(
                                 session, user_id, note_sync.title, note_sync.content
@@ -328,6 +334,8 @@ async def sync_notes(
                             db_note.title = note_sync.title
                             db_note.content = note_sync.content
                         db_note.type = note_sync.type
+                        db_note.pinned = note_sync.pinned
+                        db_note.color = note_sync.color
                         if note_sync.is_deleted:
                             db_note.is_deleted = True
                         db_note.version += 1

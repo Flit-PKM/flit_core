@@ -1,6 +1,6 @@
-from typing import List
+from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth.dependencies import get_current_superuser
@@ -35,13 +35,18 @@ async def get_subscriptions(
     db: AsyncSession = Depends(get_async_session),
     skip: int = 0,
     limit: int = 100,
+    search: Optional[str] = Query(
+        None, description="Case-insensitive substring match on subscriber email"
+    ),
 ):
     """Get all subscriptions. Superuser only."""
     logger.info(
         f"GET /subscriptions/ - Superuser {current_user.id} fetching list - "
         f"Path: {request.url.path}, skip: {skip}, limit: {limit}"
     )
-    subscriptions = await get_all_subscriptions(db, skip=skip, limit=limit)
+    subscriptions = await get_all_subscriptions(
+        db, skip=skip, limit=limit, search=search
+    )
     logger.info(
         f"GET /subscriptions/ - Returned {len(subscriptions)} subscriptions to superuser {current_user.id}"
     )

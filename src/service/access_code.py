@@ -79,6 +79,8 @@ async def activate_code(
         raise ValidationError("Invalid or unknown code")
     if access_code.activated_at is not None:
         raise ConflictError("This code has already been used")
+    if access_code.revoked_at is not None:
+        raise ValidationError("This code has been revoked")
     now = datetime.now(timezone.utc)
     expires_at = now + timedelta(weeks=access_code.period_weeks)
     grant = AccessCodeGrant(
@@ -114,6 +116,35 @@ async def get_active_access_grant(
         .limit(1)
     )
     return result.scalar_one_or_none()
+
+
+async def list_access_codes(
+    db: AsyncSession,
+    skip: int = 0,
+    limit: int = 50,
+) -> list[AccessCode]:
+    result = await db.execute(
+        select(AccessCode)
+        .order_by(AccessCode.created_at.desc())
+        .offset(skip)
+        .limit(limit)
+    )
+    return list(result.scalars().all())
+
+
+async def revoke_access_code(db: AsyncSession, code: str) -> AccessCode:
+    """Mark an unused access code as revoked. Raises if unknown, used, or already revoked."""
+    access_code = await get_access_code_by_code(db, code)
+    if not access_code:
+        raise ValidationError("Invalid or unknown code")
+    if access_code.activated_at is not None:
+        raise ConflictError("Cannot revoke a code that has already been used")
+    if access_code.revoked_at is not None:
+        return access_code
+    access_code.revoked_at = datetime.now(timezone.utc)
+    await db.flush()
+    await db.refresh(access_code)
+    return access_code
 
 
 async def user_has_encryption_grant(db: AsyncSession, user_id: int) -> bool:

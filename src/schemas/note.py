@@ -28,6 +28,16 @@ class NoteBase(BaseModel):
         description="Type of note: BASE (default), INSIGHT, or SUMMARY",
         examples=[NoteType.BASE, NoteType.INSIGHT, NoteType.SUMMARY]
     )
+    pinned: bool = Field(
+        False,
+        description="Whether the note is pinned for display",
+        examples=[False, True],
+    )
+    color: str = Field(
+        "",
+        description="Display color for the note",
+        examples=["", "#FDE68A", "blue"],
+    )
     source_id: Optional[int] = Field(
         None,
         description="ID of the connected app that created this note (if synced from external app)",
@@ -44,6 +54,8 @@ class NoteCreateRequest(NoteBase):
                 "title": "Meeting Notes",
                 "content": "Discussed project timeline and deliverables. Next steps: review requirements.",
                 "type": "BASE",
+                "pinned": False,
+                "color": "",
                 "source_id": None,
             }
         }
@@ -71,6 +83,16 @@ class NoteUpdate(BaseModel):
         None,
         description="Updated note type (only set if changing type)",
         examples=[NoteType.INSIGHT, None]
+    )
+    pinned: Optional[bool] = Field(
+        None,
+        description="Updated pinned state (only set if changing pinned state)",
+        examples=[True, None],
+    )
+    color: Optional[str] = Field(
+        None,
+        description="Updated display color (only set if changing color)",
+        examples=["#FDE68A", None],
     )
     source_id: Optional[int] = Field(
         None,

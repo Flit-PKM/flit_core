@@ -1,19 +1,24 @@
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from fastapi.security import OAuth2PasswordRequestForm
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer, OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database.session import get_async_session
 from turnstile import TurnstileVerificationError, verify_turnstile_token
 from schemas.user import UserCreate, UserRead, UserLogin, Token
-from service.user import create_user, get_user_by_email
+from service.revoked_jwt import revoke_jti
+from service.user import create_user, get_user_by_email, touch_last_login
 from auth.password import get_password_hash, verify_password
-from auth.jwt import create_access_token
+from jose import jwt as jose_jwt
+
+from auth.jwt import create_access_token, decode_login_token_claims
 from config import settings
 from logging_config import get_logger
 from models.user import User
 
 logger = get_logger(__name__)
+
+bearer_scheme = HTTPBearer()
 
 router = APIRouter(
     prefix="/auth",
@@ -171,6 +176,8 @@ async def login(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+    await touch_last_login(db, user.id)
+
     # Create access token
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
@@ -190,6 +197,35 @@ async def login_json(
     logger.info(f"JSON login attempt for email: {user_credentials.email}")
     
     user = await authenticate_user(db, user_credentials.email, user_credentials.password)
+    await touch_last_login(db, user.id)
     logger.info(f"User logged in successfully via JSON: {user.id} - {user.email}")
-    
+
     return create_login_response(user)
+
+
+@router.post("/logout")
+async def logout(
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    db: AsyncSession = Depends(get_async_session),
+):
+    """Revoke the current login JWT server-side (jti denylist) until expiry."""
+    token = credentials.credentials
+    payload = decode_login_token_claims(token)
+    if not payload:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    raw = jose_jwt.get_unverified_claims(token)
+    jti = raw.get("jti") or payload.get("jti")
+    exp = payload.get("exp")
+    if not jti or exp is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token missing jti or exp",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    exp_dt = datetime.fromtimestamp(int(float(exp)), tz=timezone.utc)
+    await revoke_jti(db, str(jti), exp_dt)
+    return {"status": "logged_out"}

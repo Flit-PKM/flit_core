@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import secrets
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Any, Optional
 
 from jose import JWTError, jwt
 
@@ -29,5 +29,13 @@ def verify_token(token: str) -> Optional[str]:
         if username is None:
             return None
         return username
+    except JWTError:
+        return None
+
+
+def decode_login_token_claims(token: str) -> Optional[dict[str, Any]]:
+    """Decode login JWT and return claims if signature and exp are valid."""
+    try:
+        return jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
     except JWTError:
         return None
