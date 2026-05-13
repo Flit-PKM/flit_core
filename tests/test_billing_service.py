@@ -416,3 +416,19 @@ async def test_complete_subscription_wrong_user_raises_403(
             )
     assert exc_info.value.status_code == 403
     assert "does not belong" in exc_info.value.detail.lower()
+
+
+@pytest.mark.asyncio
+async def test_try_claim_dodo_webhook_id_first_succeeds_repeat_fails(test_db_session):
+    """Same webhook-id can be claimed once per DB; second claim in same tx returns False."""
+    assert await billing.try_claim_dodo_webhook_id(test_db_session, "wh_evt_test_dup") is True
+    assert await billing.try_claim_dodo_webhook_id(test_db_session, "wh_evt_test_dup") is False
+    await test_db_session.commit()
+    assert await billing.try_claim_dodo_webhook_id(test_db_session, "wh_evt_test_dup") is False
+
+
+def test_health_response_includes_x_request_id(test_client):
+    r = test_client.get("/api/health")
+    # Health may be 200 or 503 when global engine cannot reach D1; header is always set.
+    rid = r.headers.get("x-request-id")
+    assert rid and len(rid) >= 8

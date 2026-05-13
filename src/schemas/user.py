@@ -148,6 +148,24 @@ class UserRead(UserBase):
 
 
 # Authentication schemas
+class GoogleIdTokenLogin(BaseModel):
+    """Body for POST /auth/login-google (Sign In With Google credential JWT)."""
+
+    id_token: str = Field(
+        ...,
+        description="Google ID token (JWT) from Sign In With Google / GIS credential",
+        examples=["eyJhbGciOiJSUzI1NiIs..."],
+    )
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "id_token": "eyJhbGciOiJSUzI1NiIs...",
+            }
+        }
+    )
+
+
 class UserLogin(BaseModel):
     email: EmailStr = Field(
         ...,

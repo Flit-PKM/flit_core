@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from config import settings
 from turnstile import TurnstileVerificationError, verify_turnstile_token
 from database.session import get_async_session
+from limiter import limiter
 from logging_config import get_logger
 from schemas.password_reset import (
     PasswordResetConfirm,
@@ -26,6 +27,7 @@ router = APIRouter(
 
 
 @router.post("/request", response_model=PasswordResetRequestResponse)
+@limiter.limit("5/minute")
 async def request_reset(
     request: Request,
     body: PasswordResetRequest,
@@ -76,7 +78,9 @@ async def confirm_redirect(
 
 
 @router.post("/confirm", response_model=PasswordResetConfirmResponse)
+@limiter.limit("15/minute")
 async def confirm_reset(
+    request: Request,
     body: PasswordResetConfirm,
     db: AsyncSession = Depends(get_async_session),
 ):

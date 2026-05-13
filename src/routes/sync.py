@@ -8,6 +8,7 @@ from auth.dependencies import (
     get_sync_oauth_context,
     require_active_subscription_for_sync,
 )
+from config import settings
 from database.session import get_async_session
 from logging_config import get_logger
 from schemas.sync import (
@@ -62,6 +63,24 @@ from service.sync import (
 
 logger = get_logger(__name__)
 
+
+def _log_sync_compare_debug(endpoint: str, body: object, result: object) -> None:
+    """Verbose compare logging for local development only."""
+    if settings.ENVIRONMENT != "development":
+        return
+    try:
+        body_repr = body.model_dump_json(indent=2) if hasattr(body, "model_dump_json") else repr(body)
+    except Exception:
+        body_repr = repr(body)
+    try:
+        result_repr = (
+            result.model_dump_json(indent=2) if hasattr(result, "model_dump_json") else repr(result)
+        )
+    except Exception:
+        result_repr = repr(result)
+    logger.debug("sync compare %s\nrequest=%s\nresult=%s", endpoint, body_repr, result_repr)
+
+
 router = APIRouter(
     prefix="/sync",
     tags=["sync"],
@@ -81,17 +100,7 @@ async def compare_notes_route(
     """Compare note versions between app and server. Returns to_pull (app should GET) and to_push (app should POST)."""
     user_id, connected_app_id = oauth_ctx.user_id, oauth_ctx.connected_app_id
     result = await compare_notes(db, user_id, connected_app_id, body.notes)
-    print('\n')
-    print('*'*100)
-    print('\n')
-    print('Comparing Notes:')
-    print(body.notes)
-    print('*'*100)
-    print('\n')
-    print('Comparing Notes Result:')
-    print(result.model_dump_json(indent=2))
-    print('*'*100)
-    print('\n')
+    _log_sync_compare_debug("notes", body, result)
     return result
 
 
@@ -104,17 +113,7 @@ async def compare_categories_route(
     """Compare category versions between app and server. Returns to_pull and to_push."""
     user_id, _ = oauth_ctx
     result = await compare_categories(db, user_id, body.categories)
-    print('\n')
-    print('*'*100)
-    print('\n')
-    print('Comparing Categories:')
-    print(body.categories)
-    print('*'*100)
-    print('\n')
-    print('Comparing Categories Result:')
-    print(result.model_dump_json(indent=2))
-    print('*'*100)
-    print('\n')
+    _log_sync_compare_debug("categories", body, result)
     return result
 
 @router.post("/compare/relationships", response_model=RelationshipsCompareResult)
@@ -126,17 +125,7 @@ async def compare_relationships_route(
     """Compare relationship versions between app and server. Returns to_pull and to_push."""
     user_id, _ = oauth_ctx
     result = await compare_relationships(db, user_id, body.relationships)
-    print('\n')
-    print('*'*100)
-    print('\n')
-    print('Comparing Relationships:')
-    print(body.relationships)
-    print('*'*100)
-    print('\n')
-    print('Comparing Relationships Result:')
-    print(result.model_dump_json(indent=2))
-    print('*'*100)
-    print('\n')
+    _log_sync_compare_debug("relationships", body, result)
     return result
 
 
@@ -149,17 +138,7 @@ async def compare_chunks_route(
     """Compare chunk versions between app and server. Returns to_pull and to_push."""
     user_id, _ = oauth_ctx
     result = await compare_chunks(db, user_id, body.chunks)
-    print('\n')
-    print('*'*100)
-    print('\n')
-    print('Comparing Chunks:')
-    print(body.chunks)
-    print('*'*100)
-    print('\n')
-    print('Comparing Chunks Result:')
-    print(result.model_dump_json(indent=2))
-    print('*'*100)
-    print('\n')
+    _log_sync_compare_debug("chunks", body, result)
     return result
 
 
@@ -172,17 +151,7 @@ async def compare_note_categories_route(
     """Compare note_category versions between app and server. Returns to_pull and to_push."""
     user_id, _ = oauth_ctx
     result = await compare_note_categories(db, user_id, body.note_categories)
-    print('\n')
-    print('*'*100)
-    print('\n')
-    print('Comparing Note Categories:')
-    print(body.note_categories)
-    print('*'*100)
-    print('\n')
-    print('Comparing Note Categories Result:')
-    print(result.model_dump_json(indent=2))
-    print('*'*100)
-    print('\n')
+    _log_sync_compare_debug("note-categories", body, result)
     return result
 
 

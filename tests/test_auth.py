@@ -9,8 +9,10 @@ from datetime import datetime, timezone
 import pytest
 from fastapi import status
 from httpx import AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from config import settings
 from models.plan_subscription import PlanSubscription
 from models.user import User
 from service.user import create_user
@@ -310,3 +312,133 @@ async def test_get_user_includes_subscription_when_user_has_plan_subscription(
     assert data["subscription"]["dodo_subscription_id"] == "sub_dodo_123"
     assert "current_period_end" in data["subscription"]
     assert "2025-06-15" in data["subscription"]["current_period_end"]
+
+
+@pytest.mark.asyncio
+async def test_login_json_rejects_oauth_only_user(
+    test_client: AsyncClient,
+    test_db_session: AsyncSession,
+    sample_user_data: dict,
+):
+    """Password login returns generic 401 when the account has no password (Google-only)."""
+    user_data = sample_user_data.copy()
+    user_data.pop("password")
+    user_data["password_hash"] = None
+    await create_user(test_db_session, user_data)
+    await test_db_session.commit()
+
+    response = test_client.post(
+        "/api/auth/login-json",
+        json={
+            "email": sample_user_data["email"],
+            "password": "any-password",
+        },
+    )
+    assert response.status_code == status.HTTP_401_UNAUTHORIZED
+    assert "incorrect" in response.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_login_google_not_configured_returns_503(
+    test_client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(settings, "GOOGLE_OAUTH_CLIENT_ID", None)
+    response = test_client.post(
+        "/api/auth/login-google",
+        json={"id_token": "dummy"},
+    )
+    assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+    assert "not configured" in response.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_login_google_invalid_token_returns_401(
+    test_client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(settings, "GOOGLE_OAUTH_CLIENT_ID", "test.apps.googleusercontent.com")
+    with patch(
+        "routes.auth.verify_google_login_id_token",
+        side_effect=ValueError("Invalid Google ID token"),
+    ):
+        response = test_client.post(
+            "/api/auth/login-google",
+            json={"id_token": "bad"},
+        )
+    assert response.status_code == status.HTTP_401_UNAUTHORIZED
+    assert "invalid google" in response.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_login_google_creates_user_with_null_password(
+    test_client: AsyncClient,
+    test_db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(settings, "GOOGLE_OAUTH_CLIENT_ID", "test.apps.googleusercontent.com")
+    email = "newgoogle@example.com"
+    claims = {"email": email, "email_verified": True}
+    with patch("routes.auth.verify_google_login_id_token", return_value=claims):
+        response = test_client.post(
+            "/api/auth/login-google",
+            json={"id_token": "fake-jwt"},
+        )
+    assert response.status_code == status.HTTP_200_OK
+    data = response.json()
+    assert "access_token" in data
+    assert data["token_type"] == "bearer"
+
+    result = await test_db_session.execute(select(User).where(User.email == email))
+    user = result.scalar_one()
+    assert user.password_hash is None
+    assert user.is_verified is True
+
+
+@pytest.mark.asyncio
+async def test_login_google_existing_password_user(
+    test_client: AsyncClient,
+    test_db_session: AsyncSession,
+    sample_user_data: dict,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(settings, "GOOGLE_OAUTH_CLIENT_ID", "test.apps.googleusercontent.com")
+    user_data = sample_user_data.copy()
+    password = user_data.pop("password")
+    user_data["password_hash"] = get_password_hash(password)
+    await create_user(test_db_session, user_data)
+    await test_db_session.commit()
+
+    claims = {"email": sample_user_data["email"], "email_verified": True}
+    with patch("routes.auth.verify_google_login_id_token", return_value=claims):
+        response = test_client.post(
+            "/api/auth/login-google",
+            json={"id_token": "fake-jwt"},
+        )
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json()["token_type"] == "bearer"
+
+
+@pytest.mark.asyncio
+async def test_login_google_inactive_user_forbidden(
+    test_client: AsyncClient,
+    test_db_session: AsyncSession,
+    sample_user_data: dict,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(settings, "GOOGLE_OAUTH_CLIENT_ID", "test.apps.googleusercontent.com")
+    user_data = sample_user_data.copy()
+    password = user_data.pop("password")
+    user_data["password_hash"] = get_password_hash(password)
+    user_data["is_active"] = False
+    await create_user(test_db_session, user_data)
+    await test_db_session.commit()
+
+    claims = {"email": sample_user_data["email"], "email_verified": True}
+    with patch("routes.auth.verify_google_login_id_token", return_value=claims):
+        response = test_client.post(
+            "/api/auth/login-google",
+            json={"id_token": "fake-jwt"},
+        )
+    assert response.status_code == status.HTTP_403_FORBIDDEN
+    assert "inactive" in response.json()["detail"].lower()

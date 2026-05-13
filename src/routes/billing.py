@@ -13,6 +13,7 @@ from database.session import get_async_session
 from models.user import User
 from service.billing import (
     BillingCompleteError,
+    _webhook_event_log_summary,
     complete_subscription,
     create_checkout_session,
     get_plans,
@@ -20,11 +21,9 @@ from service.billing import (
     handle_webhook_event,
     is_billing_configured,
     is_checkout_configured,
-    is_webhook_duplicate,
-    mark_webhook_processed,
+    try_claim_dodo_webhook_id,
     unsafe_unwrap_webhook,
     unwrap_webhook,
-    _webhook_event_log_summary,
 )
 
 logger = logging.getLogger(__name__)
@@ -277,9 +276,8 @@ async def dodo_webhook(
         )
 
     webhook_id = headers["webhook-id"]
-    if is_webhook_duplicate(webhook_id):
+    if not await try_claim_dodo_webhook_id(db, webhook_id):
         return {"received": True}
 
-    mark_webhook_processed(webhook_id)
     await handle_webhook_event(db, event)
     return {"received": True}

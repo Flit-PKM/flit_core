@@ -10,20 +10,17 @@ from typing import Any, Literal, Optional
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import settings
 from models.plan_subscription import PlanSubscription
+from models.processed_dodo_webhook import ProcessedDodoWebhook
 from service.access_code import get_active_access_grant
 
 logger = logging.getLogger(__name__)
 
 SUBSCRIPTION_STATUS_ACTIVE = "active"
-
-# In-memory set of processed webhook IDs for idempotency (single process).
-# For multi-worker deployments, replace with a DB table or Redis.
-_processed_webhook_ids: set[str] = set()
-_MAX_CACHED_WEBHOOK_IDS = 10_000
 
 # In-memory cache for plans (product details from Dodo). Single process only.
 _plans_cache: list[dict[str, Any]] | None = None
@@ -502,17 +499,23 @@ async def require_active_subscription(db: AsyncSession, user_id: int) -> None:
     )
 
 
-def is_webhook_duplicate(webhook_id: str) -> bool:
-    """Return True if this webhook_id was already processed (idempotency)."""
-    return webhook_id in _processed_webhook_ids
-
-
-def mark_webhook_processed(webhook_id: str) -> None:
-    """Mark webhook_id as processed. Evict old entries if cache is too large."""
-    global _processed_webhook_ids
-    _processed_webhook_ids.add(webhook_id)
-    if len(_processed_webhook_ids) > _MAX_CACHED_WEBHOOK_IDS:
-        _processed_webhook_ids = set(list(_processed_webhook_ids)[-_MAX_CACHED_WEBHOOK_IDS:])
+async def try_claim_dodo_webhook_id(db: AsyncSession, webhook_id: str) -> bool:
+    """
+    Insert webhook_id in a savepoint so only one worker processes a delivery.
+    Returns False if this id was already committed (duplicate delivery). True to proceed.
+    Blank webhook_id returns True (cannot dedupe; Dodo should always send webhook-id).
+    """
+    wid = (webhook_id or "").strip()
+    if not wid:
+        return True
+    try:
+        async with db.begin_nested():
+            db.add(ProcessedDodoWebhook(webhook_id=wid))
+            await db.flush()
+    except IntegrityError:
+        logger.debug("Duplicate Dodo webhook_id (skip): %s", wid[:120])
+        return False
+    return True
 
 
 async def handle_webhook_event(db: AsyncSession, event: dict[str, Any]) -> None:

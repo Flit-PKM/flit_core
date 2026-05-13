@@ -13,6 +13,7 @@ from .notesearch import NoteSearch
 from .oauth_access_token import OAuthAccessToken
 from .oauth_refresh_token import OAuthRefreshToken
 from .plan_subscription import PlanSubscription
+from .processed_dodo_webhook import ProcessedDodoWebhook
 from .relationship import Relationship
 from .revoked_jwt import RevokedJwt
 from .subscription import Subscription

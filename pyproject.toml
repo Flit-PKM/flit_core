@@ -26,6 +26,9 @@ dependencies = [
     "dodopayments[webhooks] >=1.70.0",
     "cryptography >=44.0.0",
     "aiosmtplib >=3.0.0",
+    "slowapi >=0.1.9",
+    "google-auth >=2.35.0",
+    "requests >=2.32.0",
 ]
 
 [build-system]

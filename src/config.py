@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import List, Literal, Optional
 
-from pydantic import Field, computed_field, field_validator, model_validator
+from pydantic import Field, PrivateAttr, computed_field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from urllib.parse import quote
 
@@ -34,15 +34,51 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
 
+    # Google Sign-In (optional; required for POST /auth/login-google)
+    GOOGLE_OAUTH_CLIENT_ID: Optional[str] = Field(
+        default=None,
+        description="Google OAuth 2.0 Web client ID (audience for ID token verification on /auth/login-google)",
+    )
+
     # Token settings (used by connect exchange and refresh)
     OAUTH_ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
     OAUTH_REFRESH_TOKEN_EXPIRE_DAYS: int = 90
+
+    # Rate limiting (slowapi) for public auth endpoints; disabled in tests via env
+    RATE_LIMIT_AUTH_ENABLED: bool = Field(
+        default=True,
+        description="When true, apply rate limits to /auth/register, /auth/login, etc.",
+    )
 
     # App list: fixed set of apps users can connect. Override via ALLOWED_APPS_JSON env.
     ALLOWED_APPS_JSON: Optional[str] = Field(
         default=None,
         description="JSON array of {slug, name} to override default app list, e.g. [{\"slug\":\"flit\",\"name\":\"Flit\"}]",
     )
+
+    _resolved_allowed_apps: list[dict[str, str]] = PrivateAttr()
+
+    @model_validator(mode="after")
+    def _parse_allowed_apps_json(self) -> Settings:
+        raw = self.ALLOWED_APPS_JSON
+        if not raw or not str(raw).strip():
+            self._resolved_allowed_apps = [dict(x) for x in _DEFAULT_ALLOWED_APPS]
+            return self
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"ALLOWED_APPS_JSON: invalid JSON: {e}") from e
+        if not isinstance(data, list):
+            raise ValueError("ALLOWED_APPS_JSON must be a JSON array")
+        for i, item in enumerate(data):
+            if not isinstance(item, dict) or "slug" not in item or "name" not in item:
+                raise ValueError(
+                    f"ALLOWED_APPS_JSON[{i}] must be {{slug, name}}"
+                )
+        self._resolved_allowed_apps = [
+            {"slug": str(item["slug"]), "name": str(item["name"])} for item in data
+        ]
+        return self
 
     # Connection code flow (request-code / exchange)
     CONNECTION_CODE_EXPIRE_MINUTES: int = Field(
@@ -318,18 +354,8 @@ class Settings(BaseSettings):
         return self.DB_BACKEND == "d1"
 
     def get_allowed_apps(self) -> List[dict[str, str]]:
-        """Return app list from ALLOWED_APPS_JSON if set, else default."""
-        if not self.ALLOWED_APPS_JSON:
-            return _DEFAULT_ALLOWED_APPS
-        data = json.loads(self.ALLOWED_APPS_JSON)
-        if not isinstance(data, list):
-            raise ValueError("ALLOWED_APPS_JSON must be a JSON array")
-        for i, item in enumerate(data):
-            if not isinstance(item, dict) or "slug" not in item or "name" not in item:
-                raise ValueError(
-                    f"ALLOWED_APPS_JSON[{i}] must be {{slug, name}}"
-                )
-        return data
+        """Return app list from ALLOWED_APPS_JSON if set, else default (validated at startup)."""
+        return list(self._resolved_allowed_apps)
 
     @property
     def DATABASE_URL(self) -> str:

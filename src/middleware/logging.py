@@ -1,8 +1,9 @@
 import time
-import logging
+import uuid
 from typing import Callable
-from fastapi import Request, Response
-from fastapi.responses import JSONResponse
+
+from fastapi import Request
+from starlette.datastructures import MutableHeaders
 
 from logging_config import get_logger
 
@@ -12,6 +13,7 @@ logger = get_logger(__name__)
 class RequestLoggingMiddleware:
     """
     Middleware for logging HTTP requests and responses.
+    Assigns a UUID request_id to scope state and adds X-Request-ID on the response.
     """
 
     def __init__(self, app: Callable):
@@ -22,23 +24,22 @@ class RequestLoggingMiddleware:
             await self.app(scope, receive, send)
             return
 
-        # Extract request info
         method = scope["method"]
         path = scope["path"]
         query_string = scope["query_string"].decode()
 
-        # Create request ID for tracking
-        request_id = f"{method}_{path}_{time.time()}"
+        request_id = str(uuid.uuid4())
+        scope.setdefault("state", {})["request_id"] = request_id
 
-        # Log request
         logger.info(
-            f"Request started - ID: {request_id}, Method: {method}, "
-            f"Path: {path}, Query: {query_string}"
+            "Request started - ID: %s, Method: %s, Path: %s, Query: %s",
+            request_id,
+            method,
+            path,
+            query_string,
         )
 
         start_time = time.time()
-
-        # Custom send function to capture response
         response_status = None
         response_length = 0
 
@@ -47,19 +48,24 @@ class RequestLoggingMiddleware:
 
             if message["type"] == "http.response.start":
                 response_status = message["status"]
+                headers = MutableHeaders(scope=message)
+                if "x-request-id" not in headers:
+                    headers.append("x-request-id", request_id)
 
             elif message["type"] == "http.response.body":
                 response_length += len(message.get("body", b""))
 
             await send(message)
 
-            # Log response when complete
             if message["type"] == "http.response.body" and not message.get("more_body", False):
                 duration = time.time() - start_time
                 logger.info(
-                    f"Request completed - ID: {request_id}, "
-                    f"Status: {response_status}, Duration: {duration:.3f}s, "
-                    f"Response Size: {response_length} bytes"
+                    "Request completed - ID: %s, Status: %s, Duration: %.3fs, "
+                    "Response Size: %s bytes",
+                    request_id,
+                    response_status,
+                    duration,
+                    response_length,
                 )
 
         await self.app(scope, receive, logging_send)
@@ -67,19 +73,18 @@ class RequestLoggingMiddleware:
 
 async def log_exceptions_middleware(request: Request, call_next):
     """
-    Middleware to log unhandled exceptions.
+    Log unhandled exceptions and re-raise so FastAPI exception handlers can run.
     """
     try:
-        response = await call_next(request)
-        return response
+        return await call_next(request)
     except Exception as e:
+        rid = getattr(request.state, "request_id", None)
         logger.error(
-            f"Unhandled exception - Method: {request.method}, "
-            f"Path: {request.url.path}, Error: {str(e)}",
-            exc_info=True
+            "Unhandled exception - ID: %s Method: %s Path: %s Error: %s",
+            rid,
+            request.method,
+            request.url.path,
+            str(e),
+            exc_info=True,
         )
-        # Return a generic error response
-        return JSONResponse(
-            status_code=500,
-            content={"detail": "Internal server error"}
-        )
+        raise

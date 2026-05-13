@@ -7,6 +7,7 @@ os.environ.setdefault("DB_BACKEND", "d1")
 os.environ.setdefault("CF_ACCOUNT_ID", "test-account")
 os.environ.setdefault("CF_API_TOKEN", "test-token")
 os.environ.setdefault("CF_DATABASE_ID", "test-database-id")
+os.environ["RATE_LIMIT_AUTH_ENABLED"] = "false"
 
 import asyncio
 from typing import AsyncGenerator, Generator

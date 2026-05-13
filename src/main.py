@@ -6,6 +6,9 @@ from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 from starlette.staticfiles import StaticFiles
 import uvicorn
 
@@ -39,6 +42,7 @@ from routes.password_reset import router as password_reset_router
 from routes.billing import router as billing_router
 from middleware.logging import RequestLoggingMiddleware, log_exceptions_middleware
 from logging_config import setup_logging
+from limiter import limiter
 from sqlalchemy import text
 
 from config import settings
@@ -82,6 +86,8 @@ app = FastAPI(
     description="Flit PKM backend",
     version="0.1.0",
 )
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 
 @app.get("/api/health")
@@ -177,6 +183,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.add_middleware(SlowAPIMiddleware)
 # Add middleware
 app.middleware("http")(log_exceptions_middleware)
 app.add_middleware(RequestLoggingMiddleware)
