@@ -147,6 +147,10 @@ class Settings(BaseSettings):
     DB_PORT: int = Field(default=5432, ge=1, le=65535, description="Database port (PostgreSQL)")
     DB_NAME: Optional[str] = Field(default=None, description="Database name (PostgreSQL)")
 
+    # Managed PostgreSQL (e.g. on Render) encrypts storage at rest by default; that secures disks and
+    # backups, not logical row secrecy from the app/DB user. Application-level note encryption uses
+    # ENCRYPTION_MASTER_KEY below.
+
     # Cloudflare D1 settings (required when DB_BACKEND=d1)
     CF_ACCOUNT_ID: Optional[str] = Field(default=None, description="Cloudflare account ID (D1)")
     CF_API_TOKEN: Optional[str] = Field(default=None, description="Cloudflare API token with D1 permissions")

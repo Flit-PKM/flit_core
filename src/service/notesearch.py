@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime
 from difflib import SequenceMatcher
-from typing import List
+from typing import List, Tuple
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -34,55 +35,83 @@ STOPWORDS = frozenset(
     }
 )
 
-# Scoring weights
-WEIGHT_PREFIX = 2.0
-WEIGHT_SUBSTRING = 1.0
-WEIGHT_FUZZY = 0.3
+# Scoring weights (per matched query word, best tier wins for that word)
+WEIGHT_PREFIX = 4.0
+WEIGHT_SUBSTRING = 2.0
+WEIGHT_FUZZY = 0.5
 FUZZY_RATIO_THRESHOLD = 0.8
+
+# Unicode word characters (letters, marks, digits, underscore in Unicode mode)
+_TOKEN_RE = re.compile(r"\w+", re.UNICODE)
+
+
+def _search_tokens(lower_text: str) -> List[str]:
+    """Split lowercased text into word tokens; drop stopwords and underscore-only tokens."""
+    words = _TOKEN_RE.findall(lower_text)
+    return [
+        w
+        for w in words
+        if w.strip("_") and w not in STOPWORDS
+    ]
 
 
 def normalize_for_search(title: str, content: str) -> str:
-    """Build searchable text: title + content lowercased, small stopwords removed."""
+    """Build searchable text: title + content lowercased, tokenized, stopwords removed."""
     combined = f"{title.lower()} {content.lower()}"
-    words = re.findall(r"[a-z0-9]+", combined)
-    return " ".join(w for w in words if w not in STOPWORDS and len(w) > 0)
+    return " ".join(_search_tokens(combined))
 
 
 def _query_words(query: str) -> List[str]:
     """Normalize query into words, optionally dropping stopwords."""
-    words = re.findall(r"[a-z0-9]+", query.lower())
-    return [w for w in words if w not in STOPWORDS and len(w) > 0]
+    return _search_tokens(query.lower())
 
 
-def _score_content(content: str, query_words: List[str]) -> float:
-    """Score one note's content against query words. Prefix > substring > fuzzy."""
+def _tier_for_query_word(
+    qw: str, content_lower: str, note_words: List[str]
+) -> str | None:
+    """Best match tier for one query word: 'prefix', 'substring', 'fuzzy', or None."""
+    for nw in note_words:
+        if nw.startswith(qw) or qw.startswith(nw):
+            return "prefix"
+    if qw in content_lower:
+        return "substring"
+    best_ratio = 0.0
+    for nw in note_words:
+        if len(nw) < 2:
+            continue
+        r = SequenceMatcher(None, qw, nw).ratio()
+        if r > best_ratio:
+            best_ratio = r
+    if best_ratio >= FUZZY_RATIO_THRESHOLD:
+        return "fuzzy"
+    return None
+
+
+def _rank_note(content: str, query_words: List[str]) -> Tuple[int, float] | None:
+    """
+    Return (prefix_hits, total_score) for ranking, or None if the note is excluded.
+
+    For two or more query words, every word must match at least one tier (AND).
+    For a single query word, exclusion means no tier matched.
+    """
     if not content or not query_words:
-        return 0.0
+        return None
     content_lower = content.lower()
     note_words = content_lower.split()
-    score = 0.0
+    prefix_hits = 0
+    total_score = 0.0
     for qw in query_words:
-        # Prefix: query word is prefix of any note word
-        for nw in note_words:
-            if nw.startswith(qw) or qw.startswith(nw):
-                score += WEIGHT_PREFIX
-                break
+        tier = _tier_for_query_word(qw, content_lower, note_words)
+        if tier is None:
+            return None
+        if tier == "prefix":
+            prefix_hits += 1
+            total_score += WEIGHT_PREFIX
+        elif tier == "substring":
+            total_score += WEIGHT_SUBSTRING
         else:
-            # Substring: query word appears anywhere in content
-            if qw in content_lower:
-                score += WEIGHT_SUBSTRING
-            else:
-                # Fuzzy: best ratio against any note word
-                best_ratio = 0.0
-                for nw in note_words:
-                    if len(nw) < 2:
-                        continue
-                    r = SequenceMatcher(None, qw, nw).ratio()
-                    if r > best_ratio:
-                        best_ratio = r
-                if best_ratio >= FUZZY_RATIO_THRESHOLD:
-                    score += WEIGHT_FUZZY
-    return score
+            total_score += WEIGHT_FUZZY
+    return (prefix_hits, total_score)
 
 
 async def upsert_notesearch(
@@ -123,7 +152,10 @@ async def search_notes(
     limit: int = 20,
 ) -> List[Note]:
     """
-    Search non-encrypted notes by query. Returns notes sorted by score (prefix/substring/fuzzy) then recency.
+    Search non-encrypted notes by query.
+
+    Multi-word queries require every word to match (prefix, substring, or fuzzy).
+    Results sort by prefix hit count, then weighted score, then recency.
     Only notes with a notesearch row are considered (i.e. non-encrypted).
     """
     query_words = _query_words(query)
@@ -183,20 +215,23 @@ async def search_notes(
     result = await session.execute(stmt)
     rows = result.all()
 
-    # Score and sort: only include notes with at least one match (score > 0)
-    scored = [
-        (note_id, _score_content(content, query_words), updated_at)
-        for note_id, content, updated_at in rows
-    ]
-    scored = [(nid, s, u) for nid, s, u in scored if s > 0]
+    scored: List[Tuple[int, int, float, datetime | None]] = []
+    for note_id, content, updated_at in rows:
+        rank = _rank_note(content, query_words)
+        if rank is None:
+            continue
+        prefix_hits, total_score = rank
+        scored.append((note_id, prefix_hits, total_score, updated_at))
+
     scored.sort(
         key=lambda x: (
             -x[1],
-            -(x[2].timestamp() if x[2] else 0),
+            -x[2],
+            -(x[3].timestamp() if x[3] else 0.0),
         )
     )
 
-    note_ids = [nid for nid, _, _ in scored[skip : skip + limit]]
+    note_ids = [nid for nid, _, _, _ in scored[skip : skip + limit]]
     if not note_ids:
         return []
 

@@ -341,6 +341,52 @@ async def test_list_notes_without_filter_or_search_unchanged(
     assert len(data) == 2
 
 
+@pytest.mark.asyncio
+async def test_list_notes_pinned_first_despite_older_updated_at(
+    test_client,
+    test_db_session: AsyncSession,
+    sample_user_data: dict,
+):
+    """GET /notes without search lists pinned notes before unpinned, even if unpinned are newer."""
+    user_data = sample_user_data.copy()
+    user_data["password_hash"] = get_password_hash(user_data.pop("password"))
+    user = await create_user(test_db_session, user_data)
+
+    pinned_older = await create_note(
+        test_db_session,
+        NoteCreate(
+            user_id=user.id,
+            title="Pinned older",
+            content="A",
+            type="BASE",
+            pinned=True,
+        ),
+    )
+    unpinned_newer = await create_note(
+        test_db_session,
+        NoteCreate(
+            user_id=user.id,
+            title="Unpinned newer",
+            content="B",
+            type="BASE",
+            pinned=False,
+        ),
+    )
+    await test_db_session.commit()
+
+    token = _login(test_client, sample_user_data["email"], sample_user_data["password"])
+    headers = {"Authorization": f"Bearer {token}"}
+
+    r = test_client.get("/api/notes", headers=headers)
+    assert r.status_code == status.HTTP_200_OK
+    data = r.json()
+    assert len(data) == 2
+    assert data[0]["id"] == pinned_older.id
+    assert data[0]["pinned"] is True
+    assert data[1]["id"] == unpinned_newer.id
+    assert data[1]["pinned"] is False
+
+
 # ----- Notesearch persistence (non-encrypted only) -----
 
 
@@ -541,7 +587,7 @@ async def test_search_multi_word_returns_notes_matching_both(
     test_db_session: AsyncSession,
     sample_user_data: dict,
 ):
-    """Search with multiple words returns notes that match (prefix/substring) for the query."""
+    """Multi-word search returns only notes where every query term matches (prefix/substring/fuzzy)."""
     user_data = sample_user_data.copy()
     user_data["password_hash"] = get_password_hash(user_data.pop("password"))
     user = await create_user(test_db_session, user_data)
@@ -564,7 +610,7 @@ async def test_search_multi_word_returns_notes_matching_both(
             type="BASE",
         ),
     )
-    await create_note(
+    note3 = await create_note(
         test_db_session,
         NoteCreate(
             user_id=user.id,
@@ -585,6 +631,52 @@ async def test_search_multi_word_returns_notes_matching_both(
     )
     assert r.status_code == status.HTTP_200_OK
     data = r.json()
-    assert len(data) >= 2  # note1 and tutorial+python note both match
     ids = {n["id"] for n in data}
-    assert note1.id in ids
+    assert ids == {note1.id, note3.id}
+
+
+@pytest.mark.asyncio
+async def test_search_multi_word_requires_all_terms(
+    test_client,
+    test_db_session: AsyncSession,
+    sample_user_data: dict,
+):
+    """Multi-word search excludes notes that match only some of the query terms."""
+    user_data = sample_user_data.copy()
+    user_data["password_hash"] = get_password_hash(user_data.pop("password"))
+    user = await create_user(test_db_session, user_data)
+
+    note_python_only = await create_note(
+        test_db_session,
+        NoteCreate(
+            user_id=user.id,
+            title="Python ideas",
+            content="Brainstorming only",
+            type="BASE",
+        ),
+    )
+    note_both = await create_note(
+        test_db_session,
+        NoteCreate(
+            user_id=user.id,
+            title="Python tutorial",
+            content="Full walkthrough",
+            type="BASE",
+        ),
+    )
+    await test_db_session.commit()
+
+    token = _login(test_client, sample_user_data["email"], sample_user_data["password"])
+    headers = {"Authorization": f"Bearer {token}"}
+
+    r = test_client.get(
+        "/api/notes",
+        params={"search": "python tutorial"},
+        headers=headers,
+    )
+    assert r.status_code == status.HTTP_200_OK
+    data = r.json()
+    ids = {n["id"] for n in data}
+    assert note_both.id in ids
+    assert note_python_only.id not in ids
+
