@@ -2,7 +2,7 @@
 
 from typing import Optional
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
 class PasswordResetRequest(BaseModel):
@@ -12,6 +12,15 @@ class PasswordResetRequest(BaseModel):
     cf_turnstile_response: Optional[str] = Field(
         None,
         description="Cloudflare Turnstile response token (required when TURNSTILE_SECRET is set)",
+    )
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "email": "user@example.com",
+                "cf_turnstile_response": None,
+            }
+        }
     )
 
 
@@ -36,6 +45,15 @@ class PasswordResetConfirm(BaseModel):
         ...,
         min_length=8,
         description="New password (minimum 8 characters)",
+    )
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "token": "reset-token-from-email",
+                "new_password": "NewSecurePass123!",
+            }
+        }
     )
 
 

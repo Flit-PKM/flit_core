@@ -41,6 +41,7 @@ from routes.verify import router as verify_router
 from routes.password_reset import router as password_reset_router
 from routes.billing import router as billing_router
 from flit_mcp.openapi import augment_mcp_openapi
+from openapi_augment import augment_core_openapi
 from flit_mcp.setup import register_mcp, register_mcp_openapi
 from middleware.logging import RequestLoggingMiddleware, log_exceptions_middleware
 from logging_config import setup_logging
@@ -101,6 +102,7 @@ def custom_openapi():
         description=app.description,
         routes=app.routes,
     )
+    augment_core_openapi(schema, app)
     augment_mcp_openapi(schema, app)
     app.openapi_schema = schema
     return schema
@@ -111,7 +113,7 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 
-@app.get("/api/health")
+@app.get("/api/health", tags=["health"])
 async def health():
     """Readiness/liveness: returns 200 and optionally checks DB connectivity."""
     try:

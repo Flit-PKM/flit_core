@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Query, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth.dependencies import get_current_superuser
+from openapi_responses import SUPERUSER
 from database.session import get_async_session
 from logging_config import get_logger
 from models.user import User
@@ -65,12 +66,17 @@ async def list_feedback_endpoint(
     return feedbacks
 
 
-@router.get("/{feedback_id}/responses", response_model=List[FeedbackResponseRead])
+@router.get(
+    "/{feedback_id}/responses",
+    response_model=List[FeedbackResponseRead],
+    responses=SUPERUSER,
+)
 async def list_feedback_responses_endpoint(
     feedback_id: int,
     current_user: User = Depends(get_current_superuser),
     db: AsyncSession = Depends(get_async_session),
 ):
+    """List admin responses for a feedback thread. Superuser only."""
     return await list_feedback_responses(db, feedback_id)
 
 
@@ -78,6 +84,7 @@ async def list_feedback_responses_endpoint(
     "/{feedback_id}/responses",
     response_model=FeedbackResponseRead,
     status_code=status.HTTP_201_CREATED,
+    responses=SUPERUSER,
 )
 async def create_feedback_response_endpoint(
     feedback_id: int,
@@ -85,6 +92,7 @@ async def create_feedback_response_endpoint(
     current_user: User = Depends(get_current_superuser),
     db: AsyncSession = Depends(get_async_session),
 ):
+    """Post an admin reply to a feedback thread. Superuser only."""
     return await create_feedback_response(
         db, feedback_id, current_user.id, body.body
     )

@@ -160,7 +160,11 @@ async def compare_note_categories_route(
 
 @router.get("/notes", response_model=SyncNotesResponse)
 async def get_notes(
-    core_id: int = Query(..., description="Note core_id (server id, Note.id value)"),
+    core_id: int = Query(
+        ...,
+        description="Note core_id (server id, Note.id value)",
+        examples=[42],
+    ),
     oauth_ctx: OAuthContext = Depends(get_sync_oauth_context),
     db: AsyncSession = Depends(get_async_session),
 ):
@@ -196,6 +200,7 @@ async def get_categories(
     core_id: int = Query(
         ...,
         description="Category core_id (server id, Category.id value)",
+        examples=[7],
     ),
     oauth_ctx: OAuthContext = Depends(get_sync_oauth_context),
     db: AsyncSession = Depends(get_async_session),
@@ -231,6 +236,7 @@ async def get_chunks(
     core_id: int = Query(
         ...,
         description="Chunk core_id (server id, Chunk.id value)",
+        examples=[100],
     ),
     oauth_ctx: OAuthContext = Depends(get_sync_oauth_context),
     db: AsyncSession = Depends(get_async_session),
@@ -266,10 +272,12 @@ async def get_relationship(
     note_a_core_id: int = Query(
         ...,
         description="First note core_id (server id)",
+        examples=[1],
     ),
     note_b_core_id: int = Query(
         ...,
         description="Second note core_id (server id)",
+        examples=[2],
     ),
     oauth_ctx: OAuthContext = Depends(get_sync_oauth_context),
     db: AsyncSession = Depends(get_async_session),
@@ -311,10 +319,12 @@ async def get_note_category(
     note_core_id: int = Query(
         ...,
         description="Note core_id (server id)",
+        examples=[1],
     ),
     category_core_id: int = Query(
         ...,
         description="Category core_id (server id)",
+        examples=[3],
     ),
     oauth_ctx: OAuthContext = Depends(get_sync_oauth_context),
     db: AsyncSession = Depends(get_async_session),

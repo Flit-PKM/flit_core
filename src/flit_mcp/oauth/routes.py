@@ -170,6 +170,7 @@ async def oauth_login(
     password: str = Form(...),
     db: AsyncSession = Depends(get_async_session),
 ):
+    """Browser form POST: authenticate user during MCP OAuth (HTML flow, not for API clients)."""
     pending = await get_pending_by_state(db, state)
     if not pending:
         raise HTTPException(status_code=400, detail="Invalid or expired authorization session")
@@ -211,6 +212,7 @@ async def oauth_consent(
     action: str = Form(...),
     db: AsyncSession = Depends(get_async_session),
 ):
+    """Browser form POST: approve or deny MCP OAuth scopes (HTML flow, not for API clients)."""
     pending = await get_pending_by_state(db, state)
     if not pending:
         raise HTTPException(status_code=400, detail="Invalid or expired authorization session")

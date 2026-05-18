@@ -28,6 +28,7 @@ from auth.dependencies import get_current_active_user, get_current_superuser
 from models.user import User
 from logging_config import get_logger
 from exceptions import NotFoundError
+from openapi_responses import SUPERUSER
 
 logger = get_logger(__name__)
 
@@ -43,18 +44,23 @@ current_user_router = APIRouter(
     tags=["user"],
 )
 
-@router.get("/", response_model=List[UserRead])
+@router.get("/", response_model=List[UserRead], responses=SUPERUSER)
 async def get_all_users_endpoint(
     request: Request,
     current_user: User = Depends(get_current_superuser),
     db: AsyncSession = Depends(get_async_session),
-    skip: int = 0,
-    limit: int = 10,
-    search: Optional[str] = Query(None, description="Case-insensitive match on email or username"),
-    is_verified: Optional[bool] = Query(None),
-    is_active: Optional[bool] = Query(None),
-    is_superuser: Optional[bool] = Query(None),
+    skip: int = Query(0, ge=0, examples=[0]),
+    limit: int = Query(10, ge=1, le=1000, examples=[10]),
+    search: Optional[str] = Query(
+        None,
+        description="Case-insensitive match on email or username",
+        examples=["jane@example.com"],
+    ),
+    is_verified: Optional[bool] = Query(None, examples=[True]),
+    is_active: Optional[bool] = Query(None, examples=[True]),
+    is_superuser: Optional[bool] = Query(None, examples=[False]),
 ):
+    """List all users with skip, limit, search, and is_* filters. Superuser only."""
     logger.info(
         f"GET /users/ - Superuser {current_user.id} fetching users list - "
         f"Path: {request.url.path}, Query: {request.url.query}, skip: {skip}, limit: {limit}"
@@ -72,7 +78,7 @@ async def get_all_users_endpoint(
     return users
 
 
-@router.post("/prune", response_model=UserPruneResponse)
+@router.post("/prune", response_model=UserPruneResponse, responses=SUPERUSER)
 async def prune_users_endpoint(
     request: Request,
     body: UserPruneRequest,
@@ -150,7 +156,7 @@ async def get_current_user_endpoint(
         }
     )
 
-@router.get("/{user_id}", response_model=UserRead)
+@router.get("/{user_id}", response_model=UserRead, responses=SUPERUSER)
 async def get_user_endpoint(
     request: Request,
     user_id: int,
@@ -232,7 +238,7 @@ async def update_current_user_endpoint(
         )
         raise
 
-@router.patch("/{user_id}", response_model=UserRead)
+@router.patch("/{user_id}", response_model=UserRead, responses=SUPERUSER)
 async def update_user_endpoint(
     request: Request,
     user_id: int,
@@ -264,7 +270,7 @@ async def update_user_endpoint(
         )
         raise
 
-@router.post("/{user_id}/superuser", response_model=UserRead)
+@router.post("/{user_id}/superuser", response_model=UserRead, responses=SUPERUSER)
 async def grant_superuser_endpoint(
     request: Request,
     user_id: int,
@@ -281,7 +287,7 @@ async def grant_superuser_endpoint(
     return user
 
 
-@router.delete("/{user_id}/superuser", response_model=UserRead)
+@router.delete("/{user_id}/superuser", response_model=UserRead, responses=SUPERUSER)
 async def revoke_superuser_endpoint(
     request: Request,
     user_id: int,
@@ -298,13 +304,14 @@ async def revoke_superuser_endpoint(
     return user
 
 
-@router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT, responses=SUPERUSER)
 async def delete_user_endpoint(
     request: Request,
     user_id: int,
     current_user: User = Depends(get_current_superuser),
     db: AsyncSession = Depends(get_async_session),
 ):
+    """Hard-delete a user by id. Superuser only."""
     logger.info(
         f"DELETE /users/{user_id} - Superuser {current_user.id} deleting user {user_id} - "
         f"Path: {request.url.path}, Query: {request.url.query}"

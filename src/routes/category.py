@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth.dependencies import get_current_active_user
+from openapi_responses import owned_resource
 from database.session import get_async_session
 from logging_config import get_logger
 from models.user import User
@@ -30,8 +31,8 @@ router = APIRouter(
 async def list_categories(
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_async_session),
-    skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000),
+    skip: int = Query(0, ge=0, examples=[0]),
+    limit: int = Query(100, ge=1, le=1000, examples=[20]),
 ):
     """List all categories for the authenticated user."""
     categories = await get_all_categories(db, current_user.id, skip=skip, limit=limit)
@@ -39,7 +40,11 @@ async def list_categories(
     return categories
 
 
-@router.get("/{category_id}", response_model=CategoryRead)
+@router.get(
+    "/{category_id}",
+    response_model=CategoryRead,
+    responses=owned_resource(not_found="Category not found"),
+)
 async def get_category_by_id(
     category_id: int,
     current_user: User = Depends(get_current_active_user),
@@ -63,7 +68,11 @@ async def create_category_endpoint(
     return category
 
 
-@router.put("/{category_id}", response_model=CategoryRead)
+@router.put(
+    "/{category_id}",
+    response_model=CategoryRead,
+    responses=owned_resource(not_found="Category not found"),
+)
 async def update_category_endpoint(
     category_id: int,
     category_data: CategoryUpdate,
@@ -76,7 +85,11 @@ async def update_category_endpoint(
     return updated_category
 
 
-@router.delete("/{category_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{category_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses=owned_resource(not_found="Category not found"),
+)
 async def delete_category_endpoint(
     category_id: int,
     current_user: User = Depends(get_current_active_user),

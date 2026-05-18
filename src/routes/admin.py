@@ -3,6 +3,8 @@
 from typing import List
 
 from fastapi import APIRouter, Depends, Request, status
+
+from openapi_responses import SUPERUSER
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth.dependencies import get_current_superuser
@@ -38,12 +40,13 @@ logger = get_logger(__name__)
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 
-@router.get("/stats", response_model=AdminStatsRead)
+@router.get("/stats", response_model=AdminStatsRead, responses=SUPERUSER)
 async def admin_stats(
     request: Request,
     current_user: User = Depends(get_current_superuser),
     db: AsyncSession = Depends(get_async_session),
 ):
+    """Dashboard aggregates: users, feedback, subscriptions, billing. Superuser only."""
     logger.info(
         "GET /admin/stats superuser=%s path=%s",
         current_user.id,
@@ -83,12 +86,14 @@ async def admin_stats(
     "/newsletters",
     response_model=NewsletterCampaignRead,
     status_code=status.HTTP_201_CREATED,
+    responses=SUPERUSER,
 )
 async def admin_newsletter_create(
     body: NewsletterCampaignCreate,
     current_user: User = Depends(get_current_superuser),
     db: AsyncSession = Depends(get_async_session),
 ):
+    """Create a newsletter campaign draft. Superuser only."""
     row = await create_campaign(
         db,
         subject=body.subject,
@@ -99,23 +104,29 @@ async def admin_newsletter_create(
     return row
 
 
-@router.get("/newsletters", response_model=List[NewsletterCampaignRead])
+@router.get("/newsletters", response_model=List[NewsletterCampaignRead], responses=SUPERUSER)
 async def admin_newsletter_list(
     current_user: User = Depends(get_current_superuser),
     db: AsyncSession = Depends(get_async_session),
     skip: int = 0,
     limit: int = 50,
 ):
+    """List newsletter campaigns with pagination. Superuser only."""
     return await list_campaigns(db, skip=skip, limit=limit)
 
 
-@router.patch("/newsletters/{newsletter_id}", response_model=NewsletterCampaignRead)
+@router.patch(
+    "/newsletters/{newsletter_id}",
+    response_model=NewsletterCampaignRead,
+    responses=SUPERUSER,
+)
 async def admin_newsletter_patch(
     newsletter_id: int,
     body: NewsletterCampaignUpdate,
     current_user: User = Depends(get_current_superuser),
     db: AsyncSession = Depends(get_async_session),
 ):
+    """Update a draft newsletter campaign. Superuser only."""
     return await update_campaign_draft(
         db,
         newsletter_id,
@@ -125,17 +136,26 @@ async def admin_newsletter_patch(
     )
 
 
-@router.post("/newsletters/{newsletter_id}/schedule", response_model=NewsletterCampaignRead)
+@router.post(
+    "/newsletters/{newsletter_id}/schedule",
+    response_model=NewsletterCampaignRead,
+    responses=SUPERUSER,
+)
 async def admin_newsletter_schedule(
     newsletter_id: int,
     body: NewsletterScheduleRequest,
     current_user: User = Depends(get_current_superuser),
     db: AsyncSession = Depends(get_async_session),
 ):
+    """Schedule a newsletter for future send. Superuser only."""
     return await schedule_campaign(db, newsletter_id, body.scheduled_at)
 
 
-@router.post("/newsletters/{newsletter_id}/send-now", response_model=NewsletterCampaignRead)
+@router.post(
+    "/newsletters/{newsletter_id}/send-now",
+    response_model=NewsletterCampaignRead,
+    responses=SUPERUSER,
+)
 async def admin_newsletter_send_now(
     newsletter_id: int,
     current_user: User = Depends(get_current_superuser),
@@ -145,7 +165,7 @@ async def admin_newsletter_send_now(
     return await send_campaign_now(db, newsletter_id)
 
 
-@router.post("/newsletters/process-due", status_code=status.HTTP_200_OK)
+@router.post("/newsletters/process-due", status_code=status.HTTP_200_OK, responses=SUPERUSER)
 async def admin_newsletters_process_due(
     current_user: User = Depends(get_current_superuser),
     db: AsyncSession = Depends(get_async_session),

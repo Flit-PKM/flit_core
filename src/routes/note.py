@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth.dependencies import get_current_active_user
+from openapi_responses import owned_resource
 from database.session import get_async_session
 from exceptions import NotFoundError
 from logging_config import get_logger
@@ -37,10 +38,14 @@ router = APIRouter(
 async def list_notes(
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_async_session),
-    skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000),
-    filter: str | None = Query(None, description="Filter by category name"),
-    search: str | None = Query(None, description="Search in title and content"),
+    skip: int = Query(0, ge=0, examples=[0]),
+    limit: int = Query(100, ge=1, le=1000, examples=[20]),
+    filter: str | None = Query(
+        None, description="Filter by category name", examples=["work"]
+    ),
+    search: str | None = Query(
+        None, description="Search in title and content", examples=["meeting"]
+    ),
 ):
     """List all notes for the authenticated user."""
     category_name = filter.strip() if filter else None
@@ -57,7 +62,14 @@ async def list_notes(
     return notes
 
 
-@router.get("/{note_id}", response_model=NoteDetailRead)
+@router.get(
+    "/{note_id}",
+    response_model=NoteDetailRead,
+    responses=owned_resource(
+        forbidden="Not authorized to access this note",
+        not_found="Note not found",
+    ),
+)
 async def get_note_by_id(
     note_id: int,
     current_user: User = Depends(get_current_active_user),
@@ -140,7 +152,14 @@ async def create_note_endpoint(
     return note
 
 
-@router.put("/{note_id}", response_model=NoteRead)
+@router.put(
+    "/{note_id}",
+    response_model=NoteRead,
+    responses=owned_resource(
+        forbidden="Not authorized to modify this note",
+        not_found="Note not found",
+    ),
+)
 async def update_note_endpoint(
     note_id: int,
     note_data: NoteUpdate,
@@ -168,7 +187,11 @@ async def update_note_endpoint(
     return updated_note
 
 
-@router.delete("/{note_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{note_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses=owned_resource(not_found="Note not found"),
+)
 async def delete_note_endpoint(
     note_id: int,
     current_user: User = Depends(get_current_active_user),

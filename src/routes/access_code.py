@@ -3,7 +3,9 @@
 import logging
 from typing import List
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Query, status
+
+from openapi_responses import SUPERUSER
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth.dependencies import get_current_active_user, get_current_superuser
@@ -31,22 +33,24 @@ router = APIRouter(
 )
 
 
-@router.get("", response_model=List[AccessCodeAdminRead])
+@router.get("", response_model=List[AccessCodeAdminRead], responses=SUPERUSER)
 async def list_access_codes_endpoint(
     current_user: User = Depends(get_current_superuser),
     db: AsyncSession = Depends(get_async_session),
-    skip: int = 0,
-    limit: int = 50,
+    skip: int = Query(0, ge=0, examples=[0]),
+    limit: int = Query(50, ge=1, le=500, examples=[50]),
 ) -> List[AccessCodeAdminRead]:
+    """List access codes with pagination. Superuser only."""
     return await list_access_codes(db, skip=skip, limit=limit)
 
 
-@router.post("/{code}/revoke", response_model=AccessCodeAdminRead)
+@router.post("/{code}/revoke", response_model=AccessCodeAdminRead, responses=SUPERUSER)
 async def revoke_access_code_endpoint(
     code: str,
     current_user: User = Depends(get_current_superuser),
     db: AsyncSession = Depends(get_async_session),
 ) -> AccessCodeAdminRead:
+    """Revoke a single-use access code by code string. Superuser only."""
     row = await revoke_access_code(db, code.strip())
     return AccessCodeAdminRead.model_validate(row)
 

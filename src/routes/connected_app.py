@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth.dependencies import get_current_active_user
+from openapi_responses import owned_resource
 from database.session import get_async_session
 from exceptions import NotFoundError
 from logging_config import get_logger
@@ -51,7 +52,11 @@ async def list_connected_apps(
     return [_app_read_from_connected_app(ca) for ca in connected_apps]
 
 
-@router.get("/{connected_app_id}", response_model=ConnectedAppRead)
+@router.get(
+    "/{connected_app_id}",
+    response_model=ConnectedAppRead,
+    responses=owned_resource(not_found="Connected app not found"),
+)
 async def get_connected_app_detail(
     connected_app_id: int,
     current_user: User = Depends(get_current_active_user),
@@ -67,7 +72,11 @@ async def get_connected_app_detail(
     return _app_read_from_connected_app(connected_app)
 
 
-@router.patch("/{connected_app_id}", response_model=ConnectedAppRead)
+@router.patch(
+    "/{connected_app_id}",
+    response_model=ConnectedAppRead,
+    responses=owned_resource(not_found="Connected app not found"),
+)
 async def update_connected_app_route(
     connected_app_id: int,
     data: ConnectedAppUpdate,
@@ -95,6 +104,7 @@ async def update_connected_app_route(
     "/{connected_app_id}",
     response_model=ConnectedAppRead,
     status_code=status.HTTP_200_OK,
+    responses=owned_resource(not_found="Connected app not found"),
 )
 async def delete(
     connected_app_id: int,

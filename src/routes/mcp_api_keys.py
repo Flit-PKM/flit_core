@@ -30,6 +30,7 @@ async def create_api_key(
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_async_session),
 ) -> McpApiKeyCreated:
+    """Create a user-managed MCP API key (plaintext shown once). Requires JWT."""
     _require_mcp_enabled()
     try:
         row, plaintext = await create_mcp_api_key(
@@ -55,6 +56,7 @@ async def list_api_keys(
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_async_session),
 ) -> List[McpApiKeyRead]:
+    """List MCP API keys for the current user (prefixes only). Requires JWT."""
     _require_mcp_enabled()
     rows = await list_mcp_api_keys(db, current_user.id)
     return [McpApiKeyRead.model_validate(r) for r in rows]
@@ -66,6 +68,7 @@ async def delete_api_key(
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_async_session),
 ) -> None:
+    """Revoke an MCP API key by id. Requires JWT."""
     _require_mcp_enabled()
     try:
         await revoke_mcp_api_key(db, user_id=current_user.id, key_id=key_id)

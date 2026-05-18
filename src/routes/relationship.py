@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth.dependencies import get_current_active_user
+from openapi_responses import owned_resource
 from database.session import get_async_session
 from logging_config import get_logger
 from models.user import User
@@ -49,9 +50,13 @@ async def _verify_note_ownership(
 async def list_relationships(
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_async_session),
-    note_id: Optional[int] = Query(None, description="Filter relationships for a specific note"),
-    skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000),
+    note_id: Optional[int] = Query(
+        None,
+        description="Filter relationships for a specific note",
+        examples=[1],
+    ),
+    skip: int = Query(0, ge=0, examples=[0]),
+    limit: int = Query(100, ge=1, le=1000, examples=[20]),
 ):
     """List relationships. If note_id is provided, list relationships for that note (verifies ownership)."""
     if note_id is not None:
@@ -81,7 +86,14 @@ async def list_relationships(
         )
 
 
-@router.get("/{note_a_id}/{note_b_id}", response_model=RelationshipRead)
+@router.get(
+    "/{note_a_id}/{note_b_id}",
+    response_model=RelationshipRead,
+    responses=owned_resource(
+        forbidden="Not authorized to access note",
+        not_found="Note not found",
+    ),
+)
 async def get_relationship_by_ids(
     note_a_id: int,
     note_b_id: int,
@@ -118,7 +130,14 @@ async def create_relationship_endpoint(
     return relationship
 
 
-@router.delete("/{note_a_id}/{note_b_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{note_a_id}/{note_b_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses=owned_resource(
+        forbidden="Not authorized to access note",
+        not_found="Note not found",
+    ),
+)
 async def delete_relationship_endpoint(
     note_a_id: int,
     note_b_id: int,
