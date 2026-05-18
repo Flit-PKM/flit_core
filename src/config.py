@@ -10,6 +10,7 @@ from urllib.parse import quote
 _DEFAULT_ALLOWED_APPS: List[dict[str, str]] = [
     {"slug": "flit", "name": "Flit"},
     {"slug": "still", "name": "Still"},
+    {"slug": "mcp", "name": "MCP Agent"},
 ]
 
 _DEFAULT_CORS_ORIGINS: List[str] = ["http://localhost:5173"]
@@ -269,6 +270,58 @@ class Settings(BaseSettings):
         ge=1,
         le=60,
         description="Minimum minutes between password reset emails per email address",
+    )
+
+    # MCP server (optional; /mcp and /mcp/oauth when enabled)
+    MCP_ENABLED: bool = Field(
+        default=False,
+        description="When true, mount MCP router and OAuth authorization server",
+    )
+    MCP_OPENAPI_INCLUDE: bool = Field(
+        default=True,
+        description="Include MCP tools/resources in OpenAPI even when MCP_ENABLED=false",
+    )
+    MCP_OAUTH_ISSUER: Optional[str] = Field(
+        default=None,
+        description="Public base URL for MCP OAuth (e.g. https://core.example.com). Required when MCP_ENABLED.",
+    )
+    MCP_GOOGLE_OAUTH_CLIENT_ID: Optional[str] = Field(
+        default=None,
+        description="Google OAuth Web client for MCP consent login (separate from GOOGLE_OAUTH_CLIENT_ID)",
+    )
+    MCP_GOOGLE_OAUTH_CLIENT_SECRET: Optional[str] = Field(
+        default=None,
+        description="Google OAuth client secret for MCP consent login",
+    )
+    MCP_ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(
+        default=60,
+        ge=5,
+        le=1440,
+        description="MCP OAuth access token TTL in minutes",
+    )
+    MCP_REFRESH_TOKEN_EXPIRE_DAYS: int = Field(
+        default=90,
+        ge=1,
+        le=3650,
+        description="MCP OAuth refresh token TTL in days",
+    )
+    MCP_AUTHORIZATION_CODE_EXPIRE_MINUTES: int = Field(
+        default=10,
+        ge=1,
+        le=30,
+        description="MCP OAuth authorization code TTL in minutes",
+    )
+    MCP_RATE_LIMIT_ENABLED: bool = Field(
+        default=True,
+        description="When true, apply rate limits to /mcp and /mcp/oauth",
+    )
+    MCP_RATE_LIMIT: str = Field(
+        default="120/minute",
+        description="slowapi limit for authenticated MCP tool/resource calls per user",
+    )
+    MCP_OAUTH_STATIC_CLIENTS_JSON: Optional[str] = Field(
+        default=None,
+        description='Optional JSON map of client_id -> {name, redirect_uris} for dev MCP clients',
     )
 
     @field_validator("SECRET_KEY")

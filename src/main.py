@@ -40,6 +40,8 @@ from routes.feedback import router as feedback_router
 from routes.verify import router as verify_router
 from routes.password_reset import router as password_reset_router
 from routes.billing import router as billing_router
+from flit_mcp.openapi import augment_mcp_openapi
+from flit_mcp.setup import register_mcp, register_mcp_openapi
 from middleware.logging import RequestLoggingMiddleware, log_exceptions_middleware
 from logging_config import setup_logging
 from limiter import limiter
@@ -86,6 +88,25 @@ app = FastAPI(
     description="Flit PKM backend",
     version="0.1.0",
 )
+
+
+def custom_openapi():
+    if app.openapi_schema:
+        return app.openapi_schema
+    from fastapi.openapi.utils import get_openapi
+
+    schema = get_openapi(
+        title=app.title,
+        version=app.version,
+        description=app.description,
+        routes=app.routes,
+    )
+    augment_mcp_openapi(schema, app)
+    app.openapi_schema = schema
+    return schema
+
+
+app.openapi = custom_openapi
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
@@ -207,6 +228,10 @@ app.include_router(feedback_router, prefix="/api")
 app.include_router(verify_router, prefix="/api")
 app.include_router(password_reset_router, prefix="/api")
 app.include_router(billing_router, prefix="/api")
+
+# MCP service (protocol, OAuth, API keys) — sibling to /api, not under it
+register_mcp_openapi(app)
+register_mcp(app)
 
 # Mount SPA at / (after all API routes; unknown paths fall back to index.html for client-side routing)
 if webapp_dir.is_dir():

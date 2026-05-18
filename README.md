@@ -101,6 +101,9 @@ flit_core/
 | Categories | `/categories` | Categories CRUD |
 | Relationships | `/relationships` | Relationship CRUD |
 | Subscriptions | `/subscriptions` | Subscribe (optional Cloudflare Turnstile) |
+| MCP | `/mcp` | MCP server for agents (JSON-RPC tools + `flit://` resources; separate from `/api`) |
+| MCP OAuth | `/mcp/oauth` | OAuth authorization server for MCP clients (when enabled) |
+| MCP API keys | `/mcp/api-keys` | Create/list/revoke MCP API keys (uses main-app JWT; not under `/api`) |
 
 ## Tests
 
