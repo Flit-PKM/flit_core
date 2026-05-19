@@ -42,7 +42,7 @@ def register_mcp(app: FastAPI) -> None:
         issuer = mcp_issuer()
     except ValidationError:
         logger.warning(
-            "MCP_ENABLED but public base URL unset (set VERIFY_EMAIL_BASE_URL); skipping MCP mount"
+            "MCP_ENABLED but public base URL unset (set PUBLIC_BASE_URL); skipping MCP mount"
         )
         return
 

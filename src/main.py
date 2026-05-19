@@ -246,4 +246,4 @@ else:
     logger.info("Webapp build dir %s not found; SPA at / disabled", webapp_dir)
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=settings.PORT)
+    uvicorn.run(app, host="0.0.0.0", port=8000)

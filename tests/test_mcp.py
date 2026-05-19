@@ -20,7 +20,7 @@ def mcp_enabled(monkeypatch, test_db_session):
     from starlette.routing import Mount
 
     monkeypatch.setattr(settings, "MCP_ENABLED", True)
-    monkeypatch.setattr(settings, "VERIFY_EMAIL_BASE_URL", "http://testserver")
+    monkeypatch.setattr(settings, "PUBLIC_BASE_URL", "http://testserver")
     monkeypatch.setattr(settings, "MCP_RATE_LIMIT_ENABLED", False)
 
     class _TestSessionCtx:

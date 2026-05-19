@@ -10,9 +10,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from auth.password import get_password_hash
 from auth.password_reset_token import create_password_reset_token, verify_password_reset_token
 from config import settings
+from exceptions import ValidationError
 from logging_config import get_logger
 from models.user import User
 from service.email import send_email
+from service.mcp_oauth import public_base_url
 from service.user import get_user, get_user_by_email
 
 logger = get_logger(__name__)
@@ -29,8 +31,10 @@ async def request_password_reset(db: AsyncSession, email: str) -> Tuple[bool, Op
         Tuple of (sent_ok, detail). sent_ok=True for success or when user not found (no leak).
         sent_ok=False with detail only when base URL unset or cooldown.
     """
-    if not settings.VERIFY_EMAIL_BASE_URL or not settings.VERIFY_EMAIL_BASE_URL.strip():
-        logger.error("VERIFY_EMAIL_BASE_URL not set; cannot send password reset email")
+    try:
+        base_url = public_base_url()
+    except ValidationError:
+        logger.error("PUBLIC_BASE_URL not configured; cannot send password reset email")
         return False, "Password reset is not configured"
 
     normalized_email = email.lower().strip()
@@ -52,7 +56,6 @@ async def request_password_reset(db: AsyncSession, email: str) -> Tuple[bool, Op
         return False, "Please wait before requesting another reset email"
 
     token = create_password_reset_token(user.id)
-    base_url = settings.VERIFY_EMAIL_BASE_URL.strip().rstrip("/")
     reset_link = f"{base_url}/api/password-reset/{token}/confirm"
 
     subject = "Reset your Flit password"

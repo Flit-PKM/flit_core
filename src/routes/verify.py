@@ -5,11 +5,12 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth.dependencies import get_current_active_user
-from config import settings
 from database.session import get_async_session
+from exceptions import ValidationError
 from logging_config import get_logger
 from models.user import User
 from schemas.verify import VerifySendResponse, VerifyTokenResponse
+from service.mcp_oauth import public_base_url
 from service.verification import consume_verification_token, send_verification_email
 
 logger = get_logger(__name__)
@@ -37,8 +38,9 @@ async def verify_token_confirm(
     db: AsyncSession = Depends(get_async_session),
 ):
     """Validate token and redirect to frontend with success/error query params. Used by email links."""
-    base = (settings.VERIFY_EMAIL_BASE_URL or "").strip().rstrip("/")
-    if not base:
+    try:
+        base = public_base_url()
+    except ValidationError:
         return VerifyTokenResponse(
             success=False,
             detail="Verification is not configured",

@@ -27,9 +27,6 @@ class Settings(BaseSettings):
     PROJECT_NAME: str = "Flit Core"
     ENVIRONMENT: str = "development"
 
-    # Server Settings
-    PORT: int = Field(default=8000, ge=1, le=65535, description="Server port")
-
     # JWT Settings - SECRET_KEY is required and must be set via environment variable
     SECRET_KEY: str = Field(..., min_length=32, description="Secret key for JWT tokens (minimum 32 characters)")
     ALGORITHM: str = "HS256"
@@ -240,12 +237,12 @@ class Settings(BaseSettings):
         description="Postmark SMTP port (2525 recommended when 25 is blocked)",
     )
 
-    # Email verification (optional; when VERIFY_EMAIL_BASE_URL unset, send endpoint returns error)
-    VERIFY_EMAIL_BASE_URL: Optional[str] = Field(
+    # Public URL (email links, MCP OAuth issuer, verify/reset redirects). Required in production.
+    PUBLIC_BASE_URL: Optional[str] = Field(
         default=None,
         description=(
-            "Public URL of this API (e.g. https://core.flit-pkm.com). Used for email links, "
-            "MCP OAuth issuer, and redirects. In development, defaults to http://127.0.0.1:PORT if unset."
+            "Canonical public URL of this app (e.g. https://core.flit-pkm.com). "
+            "Required when ENVIRONMENT=production. In development/test, sensible defaults apply if unset."
         ),
     )
     VERIFY_EMAIL_EXPIRE_HOURS: int = Field(
@@ -261,7 +258,7 @@ class Settings(BaseSettings):
         description="Minimum minutes between verification email resends per user",
     )
 
-    # Password reset (uses VERIFY_EMAIL_BASE_URL for redirect; same base as verification)
+    # Password reset (redirects use PUBLIC_BASE_URL via public_base_url())
     PASSWORD_RESET_EXPIRE_HOURS: int = Field(
         default=1,
         ge=1,
@@ -354,10 +351,16 @@ class Settings(BaseSettings):
     @classmethod
     def validate_environment(cls, v: str) -> str:
         """Validate environment value."""
-        allowed = {"development", "staging", "production", "test"}
+        allowed = {"development", "production", "test"}
         if v not in allowed:
             raise ValueError(f"ENVIRONMENT must be one of {allowed}")
         return v
+
+    @model_validator(mode="after")
+    def validate_public_base_url_for_production(self) -> Settings:
+        if self.ENVIRONMENT == "production" and not (self.PUBLIC_BASE_URL or "").strip():
+            raise ValueError("PUBLIC_BASE_URL must be set when ENVIRONMENT is production")
+        return self
 
     @field_validator("LOG_LEVEL")
     @classmethod

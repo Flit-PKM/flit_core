@@ -55,7 +55,7 @@ uv run python -m main
 Or with uvicorn directly:
 
 ```bash
-uv run uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000} --reload
+uv run uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 App runs on **http://0.0.0.0:8000**.
@@ -107,7 +107,7 @@ flit_core/
 
 ### MCP OAuth for external clients
 
-When `MCP_ENABLED=true`, MCP OAuth uses the same public URL as the rest of the API (`VERIFY_EMAIL_BASE_URL`, or `http://127.0.0.1:PORT` in development):
+When `MCP_ENABLED=true`, MCP OAuth uses the same public URL as the rest of the API (`PUBLIC_BASE_URL`, or `http://127.0.0.1:8000` in development when unset):
 
 1. Clients discover auth via `401` on `POST /mcp` and `/.well-known/oauth-protected-resource`.
 2. Clients open `GET /mcp/oauth/authorize` (PKCE + `resource={public_url}/mcp`) for the Flit login and consent UI.
@@ -121,7 +121,7 @@ When `MCP_ENABLED=true`, MCP OAuth uses the same public URL as the rest of the A
 **Manual verification:**
 
 ```bash
-export PUBLIC_URL=https://core.flit-pkm.com  # same as VERIFY_EMAIL_BASE_URL
+export PUBLIC_URL=https://core.flit-pkm.com  # same as PUBLIC_BASE_URL
 curl -sS -D - -o /dev/null -X POST "$PUBLIC_URL/mcp" \
   -H "Content-Type: application/json" \
   -H "MCP-Protocol-Version: 2025-06-18" \
@@ -160,7 +160,8 @@ uv run pytest tests -v --cov=main --cov=auth --cov=database --cov=config --cov=e
 | **CF_ACCOUNT_ID** | When d1 | Cloudflare account ID (D1) |
 | **CF_API_TOKEN** | When d1 | Cloudflare API token with D1 permissions |
 | **CF_DATABASE_ID** | When d1 | Cloudflare D1 database ID (UUID) |
-| **ENVIRONMENT** | No | `development` \| `staging` \| `production` \| `test` (default: `development`) |
+| **ENVIRONMENT** | No | `development` \| `production` \| `test` (default: `development`) |
+| **PUBLIC_BASE_URL** | When production | Canonical public URL (email links, MCP OAuth). Defaults in dev/test if unset. |
 | **LOG_LEVEL** | No | `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` |
 | **CORS_ORIGINS** | No | Comma-separated origins (default: `http://localhost:5173`) |
 | **ALLOWED_APPS_JSON** | No | JSON array of `{slug, name}` to override allowed apps |
@@ -207,8 +208,9 @@ Store `CF_API_TOKEN` securely (e.g. secrets manager); never hardcode.
 
 ## Production
 
-- **Run from project root:** `uv run python -m main` or `uv run uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}`. For multiple workers: `uv run uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000} --workers N`, or run behind gunicorn with uvicorn workers.
-- **Environment:** Set `ENVIRONMENT=production`, `LOG_LEVEL=INFO`, a strong unique `SECRET_KEY`, and explicit `CORS_ORIGINS` for your frontend(s). Do not use default or example values for `SECRET_KEY` in production.
+- **Run from project root:** `uv run python -m main` (listens on port 8000) or `uv run uvicorn main:app --host 0.0.0.0 --port 8000`. On Render and similar hosts, use the platform-injected shell `PORT` only in the start command (e.g. `--port $PORT`), not as an app settings variable. For multiple workers: `uv run uvicorn main:app --host 0.0.0.0 --port 8000 --workers N`, or run behind gunicorn with uvicorn workers.
+- **Environment:** Set `ENVIRONMENT=production`, `PUBLIC_BASE_URL` (e.g. `https://core.flit-pkm.com`), `LOG_LEVEL=INFO`, a strong unique `SECRET_KEY`, and explicit `CORS_ORIGINS` for your frontend(s). Do not use default or example values for `SECRET_KEY` in production.
+- **Ignored env vars:** `VERIFY_EMAIL_BASE_URL`, `MCP_OAUTH_ISSUER`, and a pydantic `PORT` setting are not read. Use `PUBLIC_BASE_URL` and the uvicorn/cli listen port instead.
 - **Health check:** `GET /health` returns 200 when the app and database are reachable; it runs a lightweight DB probe. Use it for load balancer or orchestrator (e.g. Kubernetes) readiness/liveness probes. On DB failure it returns 503.
 - **Security:** In production, 422 responses do not include the request body, and 500 responses return a generic message; details are logged server-side only.
 - **Optional:** If your Postgres requires SSL, add a `DB_SSL_MODE` (or equivalent) config and pass it into the engine; document in `.env.example` if you add it.

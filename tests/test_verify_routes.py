@@ -6,6 +6,7 @@ import pytest
 from fastapi import status
 
 from auth.password import get_password_hash
+from exceptions import ValidationError
 from auth.verify_token import create_verification_token
 from service.user import create_user
 
@@ -33,17 +34,21 @@ async def test_send_verification_base_url_not_configured(
     test_db_session,
     sample_user_data: dict,
 ):
-    """GET /verify when VERIFY_EMAIL_BASE_URL unset returns 200 with sent=false."""
+    """GET /verify when public base URL cannot be resolved returns 200 with sent=false."""
     user_data = sample_user_data.copy()
     user_data["password_hash"] = get_password_hash(user_data.pop("password"))
     await create_user(test_db_session, user_data)
     await test_db_session.commit()
 
     token = _login(test_client, sample_user_data["email"], sample_user_data["password"])
-    response = test_client.get(
-        "/api/verify",
-        headers={"Authorization": f"Bearer {token}"},
-    )
+    with patch(
+        "service.verification.public_base_url",
+        side_effect=ValidationError("PUBLIC_BASE_URL must be set when ENVIRONMENT is production"),
+    ):
+        response = test_client.get(
+            "/api/verify",
+            headers={"Authorization": f"Bearer {token}"},
+        )
     assert response.status_code == status.HTTP_200_OK
     data = response.json()
     assert data["sent"] is False
@@ -64,13 +69,13 @@ async def test_send_verification_sends_email_when_configured(
     await test_db_session.commit()
 
     mock_settings = MagicMock()
-    mock_settings.VERIFY_EMAIL_BASE_URL = "https://core.flit-pkm.com"
     mock_settings.VERIFY_EMAIL_EXPIRE_HOURS = 24
     mock_settings.VERIFY_EMAIL_RESEND_COOLDOWN_MINUTES = 5
 
     mock_send_email = AsyncMock(return_value=True)
 
     with (
+        patch("service.verification.public_base_url", return_value="https://core.flit-pkm.com"),
         patch("service.verification.settings", mock_settings),
         patch("service.verification.send_email", mock_send_email),
     ):
@@ -102,13 +107,10 @@ async def test_send_verification_already_verified_returns_sent_true(
     await create_user(test_db_session, user_data)
     await test_db_session.commit()
 
-    mock_settings = MagicMock()
-    mock_settings.VERIFY_EMAIL_BASE_URL = "https://core.flit-pkm.com"
-
     mock_send_email = AsyncMock(return_value=True)
 
     with (
-        patch("service.verification.settings", mock_settings),
+        patch("service.verification.public_base_url", return_value="https://core.flit-pkm.com"),
         patch("service.verification.send_email", mock_send_email),
     ):
         token = _login(test_client, sample_user_data["email"], sample_user_data["password"])
@@ -157,13 +159,13 @@ async def test_send_verification_cooldown_returns_sent_false(
     await test_db_session.commit()
 
     mock_settings = MagicMock()
-    mock_settings.VERIFY_EMAIL_BASE_URL = "https://core.flit-pkm.com"
     mock_settings.VERIFY_EMAIL_EXPIRE_HOURS = 24
     mock_settings.VERIFY_EMAIL_RESEND_COOLDOWN_MINUTES = 5  # 5 min cooldown
 
     mock_send_email = AsyncMock(return_value=True)
 
     with (
+        patch("service.verification.public_base_url", return_value="https://core.flit-pkm.com"),
         patch("service.verification.settings", mock_settings),
         patch("service.verification.send_email", mock_send_email),
         patch("service.verification._verification_cooldown", {user.id: 9999999999}),  # Far future
@@ -192,11 +194,8 @@ async def test_verify_token_confirm_valid_redirects_with_success(
     user = await create_user(test_db_session, user_data)
     await test_db_session.commit()
 
-    mock_settings = MagicMock()
-    mock_settings.VERIFY_EMAIL_BASE_URL = "https://core.flit-pkm.com"
-
     verify_token_str = create_verification_token(user.id)
-    with patch("routes.verify.settings", mock_settings):
+    with patch("routes.verify.public_base_url", return_value="https://core.flit-pkm.com"):
         response = test_client.get(
             f"/api/verify/{verify_token_str}/confirm",
             follow_redirects=False,
@@ -213,10 +212,7 @@ async def test_verify_token_confirm_invalid_redirects_with_error(
     test_client,
 ):
     """GET /api/verify/{token}/confirm with invalid token redirects to frontend with success=0."""
-    mock_settings = MagicMock()
-    mock_settings.VERIFY_EMAIL_BASE_URL = "https://core.flit-pkm.com"
-
-    with patch("routes.verify.settings", mock_settings):
+    with patch("routes.verify.public_base_url", return_value="https://core.flit-pkm.com"):
         response = test_client.get(
             "/api/verify/invalid-token/confirm",
             follow_redirects=False,

@@ -60,6 +60,21 @@ def test_cors_origins_json_multiple(monkeypatch: pytest.MonkeyPatch):
     assert s.CORS_ORIGINS == ["http://a.com", "http://b.com"]
 
 
+def test_public_base_url_required_in_production(monkeypatch: pytest.MonkeyPatch):
+    """ENVIRONMENT=production without PUBLIC_BASE_URL fails Settings validation."""
+    _minimal_d1_env(monkeypatch, ENVIRONMENT="production", PUBLIC_BASE_URL="")
+    with pytest.raises(ValueError, match="PUBLIC_BASE_URL must be set"):
+        Settings()
+
+
+def test_public_base_url_optional_in_development(monkeypatch: pytest.MonkeyPatch):
+    """ENVIRONMENT=development allows unset PUBLIC_BASE_URL."""
+    _minimal_d1_env(monkeypatch, ENVIRONMENT="development")
+    monkeypatch.delenv("PUBLIC_BASE_URL", raising=False)
+    s = Settings()
+    assert s.PUBLIC_BASE_URL is None
+
+
 def test_cors_origins_invalid_json_raises(monkeypatch: pytest.MonkeyPatch):
     """CORS_ORIGINS starting with [ but invalid JSON raises ValueError on access."""
     _minimal_d1_env(monkeypatch, CORS_ORIGINS="[invalid")

@@ -10,9 +10,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth.verify_token import create_verification_token, verify_verification_token
 from config import settings
+from exceptions import ValidationError
 from logging_config import get_logger
 from models.user import User
 from service.email import send_email
+from service.mcp_oauth import public_base_url
 from service.user import get_user
 
 logger = get_logger(__name__)
@@ -29,8 +31,10 @@ async def send_verification_email(db: AsyncSession, user: User) -> Tuple[bool, O
         Tuple of (sent, detail). sent=True when email was sent or user already verified.
         sent=False with detail when base URL unset, cooldown, or send failed.
     """
-    if not settings.VERIFY_EMAIL_BASE_URL or not settings.VERIFY_EMAIL_BASE_URL.strip():
-        logger.error("VERIFY_EMAIL_BASE_URL not set; cannot send verification email")
+    try:
+        base_url = public_base_url()
+    except ValidationError:
+        logger.error("PUBLIC_BASE_URL not configured; cannot send verification email")
         return False, "Verification is not configured"
 
     if user.is_verified:
@@ -46,7 +50,6 @@ async def send_verification_email(db: AsyncSession, user: User) -> Tuple[bool, O
         return False, "Please wait before requesting another email"
 
     token = create_verification_token(user.id)
-    base_url = settings.VERIFY_EMAIL_BASE_URL.strip().rstrip("/")
     verify_link = f"{base_url}/api/verify/{token}/confirm"
 
     subject = "Verify your Flit email address"

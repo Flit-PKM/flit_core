@@ -7,6 +7,7 @@ from fastapi import status
 
 from auth.password import get_password_hash
 from auth.password_reset_token import create_password_reset_token
+from exceptions import ValidationError
 from service.user import create_user
 
 
@@ -17,10 +18,12 @@ async def test_request_reset_unknown_email_returns_sent_true(
 ):
     """POST /password-reset/request with unknown email returns 200 sent=true (no leak)."""
     mock_settings = MagicMock()
-    mock_settings.VERIFY_EMAIL_BASE_URL = "https://core.flit-pkm.com"
     mock_settings.PASSWORD_RESET_COOLDOWN_MINUTES = 5
 
-    with patch("service.password_reset.settings", mock_settings):
+    with (
+        patch("service.password_reset.public_base_url", return_value="https://core.flit-pkm.com"),
+        patch("service.password_reset.settings", mock_settings),
+    ):
         response = test_client.post(
             "/api/password-reset/request",
             json={"email": "nonexistent@example.com"},
@@ -45,12 +48,12 @@ async def test_request_reset_unverified_email_returns_sent_true_no_email_sent(
     await test_db_session.commit()
 
     mock_settings = MagicMock()
-    mock_settings.VERIFY_EMAIL_BASE_URL = "https://core.flit-pkm.com"
     mock_settings.PASSWORD_RESET_COOLDOWN_MINUTES = 5
 
     mock_send_email = AsyncMock(return_value=True)
 
     with (
+        patch("service.password_reset.public_base_url", return_value="https://core.flit-pkm.com"),
         patch("service.password_reset.settings", mock_settings),
         patch("service.password_reset.send_email", mock_send_email),
     ):
@@ -70,16 +73,20 @@ async def test_request_reset_base_url_not_configured(
     test_db_session,
     sample_user_data: dict,
 ):
-    """POST /password-reset/request when VERIFY_EMAIL_BASE_URL unset returns sent=false."""
+    """POST /password-reset/request when public base URL cannot be resolved returns sent=false."""
     user_data = sample_user_data.copy()
     user_data["password_hash"] = get_password_hash(user_data.pop("password"))
     await create_user(test_db_session, user_data)
     await test_db_session.commit()
 
-    response = test_client.post(
-        "/api/password-reset/request",
-        json={"email": sample_user_data["email"]},
-    )
+    with patch(
+        "service.password_reset.public_base_url",
+        side_effect=ValidationError("PUBLIC_BASE_URL must be set when ENVIRONMENT is production"),
+    ):
+        response = test_client.post(
+            "/api/password-reset/request",
+            json={"email": sample_user_data["email"]},
+        )
     assert response.status_code == status.HTTP_200_OK
     data = response.json()
     assert data["sent"] is False
@@ -101,13 +108,13 @@ async def test_request_reset_known_email_sends(
     await test_db_session.commit()
 
     mock_settings = MagicMock()
-    mock_settings.VERIFY_EMAIL_BASE_URL = "https://core.flit-pkm.com"
     mock_settings.PASSWORD_RESET_EXPIRE_HOURS = 1
     mock_settings.PASSWORD_RESET_COOLDOWN_MINUTES = 5
 
     mock_send_email = AsyncMock(return_value=True)
 
     with (
+        patch("service.password_reset.public_base_url", return_value="https://core.flit-pkm.com"),
         patch("service.password_reset.settings", mock_settings),
         patch("service.password_reset.send_email", mock_send_email),
     ):
@@ -139,7 +146,6 @@ async def test_request_reset_cooldown_returns_sent_false(
     await test_db_session.commit()
 
     mock_settings = MagicMock()
-    mock_settings.VERIFY_EMAIL_BASE_URL = "https://core.flit-pkm.com"
     mock_settings.PASSWORD_RESET_EXPIRE_HOURS = 1
     mock_settings.PASSWORD_RESET_COOLDOWN_MINUTES = 5
 
@@ -147,6 +153,7 @@ async def test_request_reset_cooldown_returns_sent_false(
     normalized = sample_user_data["email"].lower().strip()
 
     with (
+        patch("service.password_reset.public_base_url", return_value="https://core.flit-pkm.com"),
         patch("service.password_reset.settings", mock_settings),
         patch("service.password_reset.send_email", mock_send_email),
         patch(
@@ -177,11 +184,8 @@ async def test_confirm_redirect_valid_redirects(
     user = await create_user(test_db_session, user_data)
     await test_db_session.commit()
 
-    mock_settings = MagicMock()
-    mock_settings.VERIFY_EMAIL_BASE_URL = "https://core.flit-pkm.com"
-
     token = create_password_reset_token(user.id)
-    with patch("routes.password_reset.settings", mock_settings):
+    with patch("routes.password_reset.public_base_url", return_value="https://core.flit-pkm.com"):
         response = test_client.get(
             f"/api/password-reset/{token}/confirm",
             follow_redirects=False,
@@ -195,10 +199,7 @@ async def test_confirm_redirect_invalid_redirects_with_error(
     test_client,
 ):
     """GET /password-reset/{token}/confirm with invalid token redirects with error=expired."""
-    mock_settings = MagicMock()
-    mock_settings.VERIFY_EMAIL_BASE_URL = "https://core.flit-pkm.com"
-
-    with patch("routes.password_reset.settings", mock_settings):
+    with patch("routes.password_reset.public_base_url", return_value="https://core.flit-pkm.com"):
         response = test_client.get(
             "/api/password-reset/invalid-token/confirm",
             follow_redirects=False,
@@ -255,7 +256,6 @@ async def test_request_reset_requires_turnstile_when_secret_set(
 
     mock_settings = MagicMock()
     mock_settings.TURNSTILE_SECRET = "test-secret"
-    mock_settings.VERIFY_EMAIL_BASE_URL = "https://core.flit-pkm.com"
     mock_settings.PASSWORD_RESET_EXPIRE_HOURS = 1
     mock_settings.PASSWORD_RESET_COOLDOWN_MINUTES = 5
 
@@ -265,6 +265,7 @@ async def test_request_reset_requires_turnstile_when_secret_set(
     with (
         patch("routes.password_reset.settings", mock_settings),
         patch("routes.password_reset.verify_turnstile_token", new_callable=AsyncMock) as mock_verify,
+        patch("service.password_reset.public_base_url", return_value="https://core.flit-pkm.com"),
         patch("service.password_reset.settings", mock_settings),
         patch("service.password_reset.send_email", mock_send_email),
     ):
