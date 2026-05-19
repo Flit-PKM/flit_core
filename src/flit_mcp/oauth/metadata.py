@@ -25,4 +25,5 @@ def oauth_authorization_server_metadata() -> dict:
         "code_challenge_methods_supported": ["S256"],
         "token_endpoint_auth_methods_supported": ["none", "client_secret_post"],
         "scopes_supported": ["read", "read write"],
+        "client_id_metadata_document_supported": True,
     }

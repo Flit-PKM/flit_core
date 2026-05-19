@@ -19,6 +19,7 @@ class McpOAuthAuthorizationCode(Base):
         nullable=False,
     )
     redirect_uri: Mapped[str] = mapped_column(Text, nullable=False)
+    resource: Mapped[str] = mapped_column(Text, nullable=False)
     scopes: Mapped[str] = mapped_column(String(255), nullable=False)
     code_challenge: Mapped[str] = mapped_column(String(128), nullable=False)
     code_challenge_method: Mapped[str] = mapped_column(String(16), nullable=False)
@@ -36,6 +37,7 @@ class McpOAuthPendingAuthorization(Base):
     state: Mapped[str] = mapped_column(String(128), unique=True, nullable=False, index=True)
     client_id: Mapped[str] = mapped_column(String(512), nullable=False)
     redirect_uri: Mapped[str] = mapped_column(Text, nullable=False)
+    resource: Mapped[str] = mapped_column(Text, nullable=False)
     scopes: Mapped[str] = mapped_column(String(255), nullable=False)
     code_challenge: Mapped[str] = mapped_column(String(128), nullable=False)
     code_challenge_method: Mapped[str] = mapped_column(String(16), nullable=False)

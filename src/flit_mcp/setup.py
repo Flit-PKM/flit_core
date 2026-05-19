@@ -35,8 +35,15 @@ def register_mcp(app: FastAPI) -> None:
     if not settings.MCP_ENABLED:
         logger.info("MCP server disabled (MCP_ENABLED=false)")
         return
-    if not (settings.MCP_OAUTH_ISSUER or "").strip():
-        logger.warning("MCP_ENABLED but MCP_OAUTH_ISSUER unset; skipping MCP mount")
+    from exceptions import ValidationError
+    from service.mcp_oauth import mcp_issuer
+
+    try:
+        issuer = mcp_issuer()
+    except ValidationError:
+        logger.warning(
+            "MCP_ENABLED but public base URL unset (set VERIFY_EMAIL_BASE_URL); skipping MCP mount"
+        )
         return
 
     import flit_mcp.resources  # noqa: F401 — register resources
@@ -51,4 +58,4 @@ def register_mcp(app: FastAPI) -> None:
     app.include_router(well_known_oauth_router())
     app.include_router(mcp_oauth_router)
     _mcp_registered = True
-    logger.info("MCP server mounted at /mcp (issuer=%s)", settings.MCP_OAUTH_ISSUER)
+    logger.info("MCP server mounted at /mcp (issuer=%s)", issuer)

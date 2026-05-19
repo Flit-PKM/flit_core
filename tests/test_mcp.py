@@ -20,7 +20,7 @@ def mcp_enabled(monkeypatch, test_db_session):
     from starlette.routing import Mount
 
     monkeypatch.setattr(settings, "MCP_ENABLED", True)
-    monkeypatch.setattr(settings, "MCP_OAUTH_ISSUER", "http://testserver")
+    monkeypatch.setattr(settings, "VERIFY_EMAIL_BASE_URL", "http://testserver")
     monkeypatch.setattr(settings, "MCP_RATE_LIMIT_ENABLED", False)
 
     class _TestSessionCtx:
@@ -211,6 +211,7 @@ async def test_oauth_pkce_token_exchange(
         state="state123",
         client_id="mcp-dev",
         redirect_uri="http://127.0.0.1:8080/oauth/callback",
+        resource="http://testserver/mcp",
         scope="read",
         code_challenge=challenge,
         code_challenge_method="S256",
@@ -227,6 +228,7 @@ async def test_oauth_pkce_token_exchange(
             "redirect_uri": "http://127.0.0.1:8080/oauth/callback",
             "client_id": "mcp-dev",
             "code_verifier": verifier,
+            "resource": "http://testserver/mcp",
         },
     )
     assert token_resp.status_code == 200

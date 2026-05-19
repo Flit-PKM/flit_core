@@ -105,6 +105,32 @@ flit_core/
 | MCP OAuth | `/mcp/oauth` | OAuth authorization server for MCP clients (when enabled) |
 | MCP API keys | `/mcp/api-keys` | Create/list/revoke MCP API keys (uses main-app JWT; not under `/api`) |
 
+### MCP OAuth for external clients
+
+When `MCP_ENABLED=true`, MCP OAuth uses the same public URL as the rest of the API (`VERIFY_EMAIL_BASE_URL`, or `http://127.0.0.1:PORT` in development):
+
+1. Clients discover auth via `401` on `POST /mcp` and `/.well-known/oauth-protected-resource`.
+2. Clients open `GET /mcp/oauth/authorize` (PKCE + `resource={public_url}/mcp`) for the Flit login and consent UI.
+3. Clients exchange the code at `POST /mcp/oauth/token` and call `POST /mcp` with the Bearer token.
+
+**Client registration (no dynamic registration):**
+
+- **CIMD (recommended):** Host a JSON metadata document at an HTTPS URL and use that URL as `client_id`. The server advertises `client_id_metadata_document_supported: true` in `/.well-known/oauth-authorization-server`.
+- **Pre-registered:** Set `MCP_OAUTH_STATIC_CLIENTS_JSON` with known `client_id` and `redirect_uris` for clients that do not support CIMD yet.
+
+**Manual verification:**
+
+```bash
+export PUBLIC_URL=https://core.flit-pkm.com  # same as VERIFY_EMAIL_BASE_URL
+curl -sS -D - -o /dev/null -X POST "$PUBLIC_URL/mcp" \
+  -H "Content-Type: application/json" \
+  -H "MCP-Protocol-Version: 2025-06-18" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"t","version":"1"}}}'
+curl -sS "$PUBLIC_URL/.well-known/oauth-authorization-server" | jq .
+```
+
+API keys (`flit_mcp_…`) remain a fallback for clients that do not implement MCP OAuth.
+
 ## Tests
 
 From project root (after `uv sync`). Tests use in-memory SQLite:

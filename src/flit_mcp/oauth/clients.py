@@ -11,6 +11,8 @@ class McpOAuthClient:
     client_id: str
     name: str
     redirect_uris: list[str]
+    logo_uri: str | None = None
+    exact_redirect_match: bool = True
 
 
 def load_static_oauth_clients() -> dict[str, McpOAuthClient]:
@@ -23,8 +25,9 @@ def load_static_oauth_clients() -> dict[str, McpOAuthClient]:
                 client_id=cid,
                 name=str(meta.get("name", cid)),
                 redirect_uris=list(meta.get("redirect_uris", [])),
+                logo_uri=meta.get("logo_uri"),
+                exact_redirect_match=True,
             )
-    # Dev default: allow localhost MCP clients
     if not clients:
         clients["mcp-dev"] = McpOAuthClient(
             client_id="mcp-dev",
@@ -33,9 +36,11 @@ def load_static_oauth_clients() -> dict[str, McpOAuthClient]:
                 "http://127.0.0.1:8080/oauth/callback",
                 "http://localhost:8080/oauth/callback",
             ],
+            exact_redirect_match=False,
         )
     return clients
 
 
 def get_oauth_client(client_id: str) -> McpOAuthClient | None:
+    """Sync lookup for static clients only (tests/legacy). Prefer resolve_oauth_client."""
     return load_static_oauth_clients().get(client_id)

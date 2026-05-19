@@ -243,7 +243,10 @@ class Settings(BaseSettings):
     # Email verification (optional; when VERIFY_EMAIL_BASE_URL unset, send endpoint returns error)
     VERIFY_EMAIL_BASE_URL: Optional[str] = Field(
         default=None,
-        description="Base URL for verification links (e.g. https://core.flit-pkm.com). Required for send.",
+        description=(
+            "Public URL of this API (e.g. https://core.flit-pkm.com). Used for email links, "
+            "MCP OAuth issuer, and redirects. In development, defaults to http://127.0.0.1:PORT if unset."
+        ),
     )
     VERIFY_EMAIL_EXPIRE_HOURS: int = Field(
         default=24,
@@ -280,10 +283,6 @@ class Settings(BaseSettings):
     MCP_OPENAPI_INCLUDE: bool = Field(
         default=True,
         description="Include MCP tools/resources in OpenAPI even when MCP_ENABLED=false",
-    )
-    MCP_OAUTH_ISSUER: Optional[str] = Field(
-        default=None,
-        description="Public base URL for MCP OAuth (e.g. https://core.example.com). Required when MCP_ENABLED.",
     )
     MCP_GOOGLE_OAUTH_CLIENT_ID: Optional[str] = Field(
         default=None,
@@ -322,6 +321,23 @@ class Settings(BaseSettings):
     MCP_OAUTH_STATIC_CLIENTS_JSON: Optional[str] = Field(
         default=None,
         description='Optional JSON map of client_id -> {name, redirect_uris} for dev MCP clients',
+    )
+    MCP_OAUTH_CIMD_ENABLED: bool = Field(
+        default=True,
+        description="Resolve HTTPS URL client_ids via OAuth Client ID Metadata Documents (CIMD)",
+    )
+    MCP_OAUTH_CIMD_FETCH_TIMEOUT_SECONDS: float = Field(
+        default=5.0,
+        ge=1.0,
+        le=30.0,
+        description="Timeout for outbound CIMD metadata fetches",
+    )
+    MCP_OAUTH_CIMD_ALLOWED_HOST_SUFFIXES: Optional[str] = Field(
+        default=None,
+        description=(
+            "Comma-separated host suffixes allowed for CIMD client_id URLs "
+            "(empty = any HTTPS host)"
+        ),
     )
 
     @field_validator("SECRET_KEY")

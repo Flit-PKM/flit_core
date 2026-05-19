@@ -14,7 +14,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from auth.jwt import create_access_token
 from config import settings
 from exceptions import AuthenticationError, ValidationError
-from flit_mcp.scopes import READ_WRITE_SCOPE, normalize_requested_scope
+from flit_mcp.oauth.clients import McpOAuthClient
+from flit_mcp.scopes import normalize_requested_scope
 from models.mcp_access_token import McpAccessToken
 from models.mcp_oauth_authorization_code import (
     McpOAuthAuthorizationCode,
@@ -40,11 +41,56 @@ def _as_utc_aware(dt: datetime) -> datetime:
     return dt
 
 
+def public_base_url() -> str:
+    """Public URL of this API (MCP OAuth issuer, email links, etc.)."""
+    configured = (settings.VERIFY_EMAIL_BASE_URL or "").strip().rstrip("/")
+    if configured:
+        return configured
+    if settings.ENVIRONMENT == "development":
+        return f"http://127.0.0.1:{settings.PORT}"
+    raise ValidationError(
+        "VERIFY_EMAIL_BASE_URL must be set to this server's public URL "
+        "(used for MCP OAuth and email links)"
+    )
+
+
 def mcp_issuer() -> str:
-    issuer = (settings.MCP_OAUTH_ISSUER or "").strip().rstrip("/")
-    if not issuer:
-        raise ValidationError("MCP_OAUTH_ISSUER is not configured")
-    return issuer
+    return public_base_url()
+
+
+def canonical_mcp_resource() -> str:
+    return f"{mcp_issuer()}/mcp"
+
+
+def _normalize_resource_uri(resource: str) -> str:
+    parsed = urlparse(resource.strip())
+    scheme = (parsed.scheme or "").lower()
+    host = (parsed.hostname or "").lower()
+    port = parsed.port
+    path = parsed.path or ""
+    if path != "/" and path.endswith("/"):
+        path = path.rstrip("/")
+    if port and (
+        (scheme == "https" and port != 443)
+        or (scheme == "http" and port != 80)
+    ):
+        netloc = f"{host}:{port}"
+    else:
+        netloc = host
+    return f"{scheme}://{netloc}{path}"
+
+
+def resolve_resource_param(resource: str | None) -> str:
+    canonical = canonical_mcp_resource()
+    if not resource or not str(resource).strip():
+        return canonical
+    normalized = _normalize_resource_uri(str(resource))
+    canonical_norm = _normalize_resource_uri(canonical)
+    if normalized != canonical_norm:
+        raise ValidationError(
+            f"Invalid resource parameter; expected {canonical}"
+        )
+    return canonical
 
 
 def verify_pkce_challenge(
@@ -59,12 +105,44 @@ def verify_pkce_challenge(
     return secrets.compare_digest(computed, code_challenge)
 
 
+def redirect_uri_is_valid_scheme(redirect_uri: str) -> bool:
+    parsed = urlparse(redirect_uri)
+    if parsed.scheme == "https":
+        return True
+    if parsed.scheme == "http":
+        host = (parsed.hostname or "").lower()
+        return host in ("127.0.0.1", "localhost")
+    return False
+
+
+def redirect_uri_allowed(
+    redirect_uri: str,
+    client: McpOAuthClient,
+) -> bool:
+    if not redirect_uri_is_valid_scheme(redirect_uri):
+        return False
+    if redirect_uri in client.redirect_uris:
+        return True
+    if client.exact_redirect_match:
+        return False
+    parsed = urlparse(redirect_uri)
+    for allowed in client.redirect_uris:
+        allowed_parsed = urlparse(allowed)
+        if (
+            allowed_parsed.netloc == parsed.netloc
+            and allowed_parsed.scheme == parsed.scheme
+        ):
+            return True
+    return False
+
+
 async def create_pending_authorization(
     session: AsyncSession,
     *,
     state: str,
     client_id: str,
     redirect_uri: str,
+    resource: str,
     scope: str | None,
     code_challenge: str,
     code_challenge_method: str,
@@ -77,6 +155,7 @@ async def create_pending_authorization(
         state=state,
         client_id=client_id,
         redirect_uri=redirect_uri,
+        resource=resource,
         scopes=scopes,
         code_challenge=code_challenge,
         code_challenge_method=code_challenge_method,
@@ -130,6 +209,7 @@ async def issue_authorization_code(
         client_id=pending.client_id,
         user_id=pending.user_id,
         redirect_uri=pending.redirect_uri,
+        resource=pending.resource,
         scopes=pending.scopes,
         code_challenge=pending.code_challenge,
         code_challenge_method=pending.code_challenge_method,
@@ -168,7 +248,9 @@ async def exchange_authorization_code(
     redirect_uri: str,
     client_id: str,
     code_verifier: str,
+    resource: str | None,
 ) -> tuple[McpAccessToken, McpRefreshToken]:
+    resolved_resource = resolve_resource_param(resource)
     result = await session.execute(
         select(McpOAuthAuthorizationCode).where(McpOAuthAuthorizationCode.code == code)
     )
@@ -183,6 +265,8 @@ async def exchange_authorization_code(
         raise AuthenticationError("Invalid client_id")
     if auth_code.redirect_uri != redirect_uri:
         raise AuthenticationError("Invalid redirect_uri")
+    if auth_code.resource != resolved_resource:
+        raise AuthenticationError("Invalid resource")
     if not verify_pkce_challenge(
         code_verifier,
         auth_code.code_challenge,
@@ -195,6 +279,7 @@ async def exchange_authorization_code(
         session,
         user_id=auth_code.user_id,
         scopes=auth_code.scopes,
+        resource=auth_code.resource,
     )
 
 
@@ -203,7 +288,9 @@ async def _issue_mcp_tokens(
     *,
     user_id: int,
     scopes: str,
+    resource: str | None = None,
 ) -> tuple[McpAccessToken, McpRefreshToken]:
+    aud = resource or canonical_mcp_resource()
     jti = secrets.token_urlsafe(16)
     expires_delta = timedelta(minutes=settings.MCP_ACCESS_TOKEN_EXPIRE_MINUTES)
     token_data = {
@@ -211,6 +298,7 @@ async def _issue_mcp_tokens(
         "scopes": scopes,
         "token_type": MCP_TOKEN_TYPE,
         "jti": jti,
+        "aud": aud,
     }
     access_jwt = create_access_token(token_data, expires_delta=expires_delta)
     expires_at = _naive(_utcnow() + expires_delta)
@@ -248,7 +336,10 @@ async def _issue_mcp_tokens(
 async def refresh_mcp_access_token(
     session: AsyncSession,
     refresh_token_str: str,
+    *,
+    resource: str | None = None,
 ) -> tuple[McpAccessToken, McpRefreshToken]:
+    resolved_resource = resolve_resource_param(resource)
     result = await session.execute(
         select(McpRefreshToken).where(McpRefreshToken.token == refresh_token_str)
     )
@@ -274,20 +365,41 @@ async def refresh_mcp_access_token(
         session,
         user_id=refresh_row.user_id,
         scopes=refresh_row.scopes,
+        resource=resolved_resource,
     )
+
+
+def _audience_matches(payload: dict, expected: str) -> bool:
+    aud = payload.get("aud")
+    if aud is None:
+        return False
+    if isinstance(aud, str):
+        return _normalize_resource_uri(aud) == _normalize_resource_uri(expected)
+    if isinstance(aud, list):
+        expected_norm = _normalize_resource_uri(expected)
+        return any(
+            _normalize_resource_uri(str(a)) == expected_norm for a in aud
+        )
+    return False
 
 
 async def validate_mcp_access_token(
     session: AsyncSession,
     token: str,
 ) -> tuple[int, str] | None:
+    expected_aud = canonical_mcp_resource()
     try:
         payload = jose_jwt.decode(
-            token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM]
+            token,
+            settings.SECRET_KEY,
+            algorithms=[settings.ALGORITHM],
+            options={"verify_aud": False},
         )
     except jose_jwt.JWTError:
         return None
     if payload.get("token_type") != MCP_TOKEN_TYPE:
+        return None
+    if not _audience_matches(payload, expected_aud):
         return None
     jti = payload.get("jti")
     sub = payload.get("sub")
@@ -309,13 +421,3 @@ async def validate_mcp_access_token(
     if str(row.user_id) != str(sub):
         return None
     return row.user_id, row.scopes
-
-
-def redirect_uri_allowed(redirect_uri: str, client_redirect_uris: list[str]) -> bool:
-    if redirect_uri in client_redirect_uris:
-        return True
-    parsed = urlparse(redirect_uri)
-    for allowed in client_redirect_uris:
-        if urlparse(allowed).netloc == parsed.netloc and urlparse(allowed).scheme == parsed.scheme:
-            return True
-    return False

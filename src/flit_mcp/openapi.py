@@ -111,7 +111,7 @@ def augment_mcp_openapi(schema: dict[str, Any], app: FastAPI) -> None:
     if not settings.MCP_ENABLED:
         mcp_section += (
             "\n*MCP protocol endpoints are not mounted at runtime "
-            "(set `MCP_ENABLED=true` and `MCP_OAUTH_ISSUER`).*\n"
+            "(set `MCP_ENABLED=true` and `VERIFY_EMAIL_BASE_URL` in production).*\n"
         )
     schema.setdefault("info", {})["description"] = (base_desc + mcp_section).strip()
 
