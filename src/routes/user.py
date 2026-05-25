@@ -136,12 +136,7 @@ async def get_current_user_endpoint(
         else None
     )
     access_grant_data = (
-        UserAccessGrantRead(
-            expires_at=grant.expires_at.isoformat(),
-            includes_encryption=grant.includes_encryption,
-        )
-        if grant
-        else None
+        UserAccessGrantRead(expires_at=grant.expires_at.isoformat()) if grant else None
     )
     entitlement_active = (
         (sub is not None and sub.status == SUBSCRIPTION_STATUS_ACTIVE) or grant is not None
@@ -186,12 +181,7 @@ async def get_user_endpoint(
         else None
     )
     access_grant_data = (
-        UserAccessGrantRead(
-            expires_at=grant.expires_at.isoformat(),
-            includes_encryption=grant.includes_encryption,
-        )
-        if grant
-        else None
+        UserAccessGrantRead(expires_at=grant.expires_at.isoformat()) if grant else None
     )
     entitlement_active = (
         (sub is not None and sub.status == SUBSCRIPTION_STATUS_ACTIVE) or grant is not None

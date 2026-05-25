@@ -145,9 +145,8 @@ class Settings(BaseSettings):
     DB_PORT: int = Field(default=5432, ge=1, le=65535, description="Database port (PostgreSQL)")
     DB_NAME: Optional[str] = Field(default=None, description="Database name (PostgreSQL)")
 
-    # Managed PostgreSQL (e.g. on Render) encrypts storage at rest by default; that secures disks and
-    # backups, not logical row secrecy from the app/DB user. Application-level note encryption uses
-    # ENCRYPTION_MASTER_KEY below.
+    # Managed PostgreSQL (e.g. on Render) encrypts storage at rest by default (disks and backups).
+    # The application stores note bodies as plaintext in the database.
 
     # Cloudflare D1 settings (required when DB_BACKEND=d1)
     CF_ACCOUNT_ID: Optional[str] = Field(default=None, description="Cloudflare account ID (D1)")
@@ -187,30 +186,15 @@ class Settings(BaseSettings):
     )
     DODO_PAYMENTS_SUBSCRIPTION_PRODUCT_ID: Optional[str] = Field(
         default=None,
-        description="Optional: used for is_billing_configured when the 4 plan IDs are not set (e.g. sync gating).",
+        description="Optional: used for is_billing_configured when plan IDs are not set (e.g. sync gating).",
     )
-    # Four separate subscription products (Core+AI with optional Encryption). IDs from Dodo dashboard.
-    DODO_PAYMENTS_MONTHLY_CORE_AI: Optional[str] = Field(
+    DODO_PAYMENTS_MONTHLY: Optional[str] = Field(
         default=None,
-        description="Dodo product ID for Monthly Core+AI subscription.",
+        description="Dodo product ID for monthly subscription.",
     )
-    DODO_PAYMENTS_MONTHLY_CORE_AI_ENCRYPTION: Optional[str] = Field(
+    DODO_PAYMENTS_ANNUAL: Optional[str] = Field(
         default=None,
-        description="Dodo product ID for Monthly Core+AI+Encryption subscription.",
-    )
-    DODO_PAYMENTS_ANNUAL_CORE_AI: Optional[str] = Field(
-        default=None,
-        description="Dodo product ID for Annual Core+AI subscription.",
-    )
-    DODO_PAYMENTS_ANNUAL_CORE_AI_ENCRYPTION: Optional[str] = Field(
-        default=None,
-        description="Dodo product ID for Annual Core+AI+Encryption subscription.",
-    )
-
-    # Encryption at rest (optional; when set, notes and chunk summaries are encrypted per-user)
-    ENCRYPTION_MASTER_KEY: Optional[str] = Field(
-        default=None,
-        description="Base64-encoded 32-byte key for wrapping per-user DEKs. When unset, encryption is disabled.",
+        description="Dodo product ID for annual subscription.",
     )
 
     # Postmark SMTP (optional; when unset, email sending is disabled)
@@ -336,6 +320,18 @@ class Settings(BaseSettings):
             "(empty = any HTTPS host)"
         ),
     )
+    MCP_OAUTH_DCR_ENABLED: bool = Field(
+        default=False,
+        description="Enable Dynamic Client Registration (browser connect + POST /register)",
+    )
+    MCP_OAUTH_DCR_RATE_LIMIT: str = Field(
+        default="10/minute",
+        description="slowapi limit for POST /mcp/oauth/register",
+    )
+    MCP_OAUTH_DCR_DYNAMIC_CLIENT_ID: str = Field(
+        default="dynamic",
+        description="client_id sentinel for browser-first dynamic registration on /authorize",
+    )
 
     @field_validator("SECRET_KEY")
     @classmethod
@@ -370,26 +366,6 @@ class Settings(BaseSettings):
         if v.upper() not in allowed:
             raise ValueError(f"LOG_LEVEL must be one of {allowed}")
         return v.upper()
-
-    @field_validator("ENCRYPTION_MASTER_KEY")
-    @classmethod
-    def validate_encryption_master_key(cls, v: Optional[str]) -> Optional[str]:
-        """If set, ENCRYPTION_MASTER_KEY must decode to 32 bytes (base64)."""
-        if not v:
-            return None
-        import base64
-        try:
-            key_bytes = base64.b64decode(v, validate=True)
-        except Exception:
-            raise ValueError("ENCRYPTION_MASTER_KEY must be valid base64")
-        if len(key_bytes) != 32:
-            raise ValueError("ENCRYPTION_MASTER_KEY must decode to 32 bytes")
-        return v
-
-    @property
-    def encryption_enabled(self) -> bool:
-        """True when encryption at rest is configured."""
-        return bool(self.ENCRYPTION_MASTER_KEY)
 
     @property
     def email_configured(self) -> bool:

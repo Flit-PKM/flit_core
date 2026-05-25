@@ -48,7 +48,6 @@ from models import (  # noqa: F401
     Subscription,
     Superuser,
     User,
-    UserEncryptionKey,
 )
 
 target_metadata = Base.metadata

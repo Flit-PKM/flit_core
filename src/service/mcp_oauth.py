@@ -147,6 +147,9 @@ async def create_pending_authorization(
     scope: str | None,
     code_challenge: str,
     code_challenge_method: str,
+    client_name: str | None = None,
+    logo_uri: str | None = None,
+    dynamic_registration: bool = False,
 ) -> McpOAuthPendingAuthorization:
     scopes = normalize_requested_scope(scope)
     expires_at = _naive(
@@ -155,6 +158,9 @@ async def create_pending_authorization(
     row = McpOAuthPendingAuthorization(
         state=state,
         client_id=client_id,
+        client_name=client_name,
+        logo_uri=logo_uri,
+        dynamic_registration=dynamic_registration,
         redirect_uri=redirect_uri,
         resource=resource,
         scopes=scopes,
@@ -224,9 +230,18 @@ async def issue_authorization_code(
     return code_str
 
 
-def build_redirect_with_code(redirect_uri: str, code: str, state: str) -> str:
+def build_redirect_with_code(
+    redirect_uri: str,
+    code: str,
+    state: str,
+    *,
+    client_id: str | None = None,
+) -> str:
+    params: dict[str, str] = {"code": code, "state": state}
+    if client_id:
+        params["client_id"] = client_id
     sep = "&" if "?" in redirect_uri else "?"
-    return f"{redirect_uri}{sep}{urlencode({'code': code, 'state': state})}"
+    return f"{redirect_uri}{sep}{urlencode(params)}"
 
 
 def build_redirect_with_error(

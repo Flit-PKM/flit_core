@@ -395,7 +395,7 @@ async def test_notesearch_row_created_on_create_note(
     test_db_session: AsyncSession,
     sample_user_data: dict,
 ):
-    """Creating a note (encryption off) inserts a notesearch row with normalized content."""
+    """Creating a note inserts a notesearch row with normalized content."""
     user_data = sample_user_data.copy()
     user_data["password_hash"] = get_password_hash(user_data.pop("password"))
     user = await create_user(test_db_session, user_data)
@@ -430,7 +430,7 @@ async def test_notesearch_row_updated_on_update_note(
     test_db_session: AsyncSession,
     sample_user_data: dict,
 ):
-    """Updating a note (encryption off) updates the notesearch row."""
+    """Updating a note updates the notesearch row."""
     user_data = sample_user_data.copy()
     user_data["password_hash"] = get_password_hash(user_data.pop("password"))
     user = await create_user(test_db_session, user_data)
@@ -492,55 +492,6 @@ async def test_notesearch_row_deleted_on_soft_delete_note(
     assert result.scalar_one_or_none() is not None
 
     await delete_note(test_db_session, note.id, user.id)
-    await test_db_session.commit()
-
-    result = await test_db_session.execute(
-        select(NoteSearch).where(NoteSearch.note_id == note.id)
-    )
-    assert result.scalar_one_or_none() is None
-
-
-@pytest.mark.asyncio
-async def test_no_notesearch_row_when_encryption_enabled(
-    test_db_session: AsyncSession,
-    sample_user_data: dict,
-    monkeypatch,
-):
-    """When encryption is enabled for the user, no notesearch row is created."""
-    import base64
-    import os
-
-    import config as config_module
-    import service.encryption as enc_module
-
-    key_b64 = base64.b64encode(os.urandom(32)).decode("utf-8")
-    monkeypatch.setattr(config_module.settings, "ENCRYPTION_MASTER_KEY", key_b64)
-
-    async def _encryption_enabled(_session, _user_id):
-        return True
-
-    async def _user_has_plan(_session, _user_id):
-        return True
-
-    monkeypatch.setattr(
-        enc_module, "is_encryption_enabled_for_user", _encryption_enabled
-    )
-    monkeypatch.setattr(enc_module, "user_has_encryption_plan", _user_has_plan)
-
-    user_data = sample_user_data.copy()
-    user_data["password_hash"] = get_password_hash(user_data.pop("password"))
-    user = await create_user(test_db_session, user_data)
-    await test_db_session.commit()
-
-    note = await create_note(
-        test_db_session,
-        NoteCreate(
-            user_id=user.id,
-            title="Secret",
-            content="Encrypted content",
-            type="BASE",
-        ),
-    )
     await test_db_session.commit()
 
     result = await test_db_session.execute(

@@ -20,8 +20,9 @@ from service.mcp_oauth import canonical_mcp_resource, validate_mcp_access_token
 def mcp_oauth_env(monkeypatch, test_db_session):
     from starlette.routing import Mount
 
+    monkeypatch.setattr(settings, "ENVIRONMENT", "test")
     monkeypatch.setattr(settings, "MCP_ENABLED", True)
-    monkeypatch.setattr(settings, "VERIFY_EMAIL_BASE_URL", "http://testserver")
+    monkeypatch.setattr(settings, "PUBLIC_BASE_URL", "http://testserver")
     monkeypatch.setattr(settings, "MCP_RATE_LIMIT_ENABLED", False)
     monkeypatch.setattr(settings, "MCP_OAUTH_CIMD_ENABLED", True)
 
@@ -247,7 +248,7 @@ async def test_validate_mcp_token_requires_audience(test_db_session):
     test_db_session.add(row)
     await test_db_session.flush()
 
-    with patch.object(settings, "VERIFY_EMAIL_BASE_URL", "http://testserver"):
+    with patch.object(settings, "PUBLIC_BASE_URL", "http://testserver"):
         result = await validate_mcp_access_token(test_db_session, token)
     assert result is None
 
@@ -281,6 +282,6 @@ async def test_validate_mcp_token_accepts_canonical_aud(test_db_session, monkeyp
     test_db_session.add(row)
     await test_db_session.flush()
 
-    monkeypatch.setattr(settings, "VERIFY_EMAIL_BASE_URL", "http://testserver")
+    monkeypatch.setattr(settings, "PUBLIC_BASE_URL", "http://testserver")
     result = await validate_mcp_access_token(test_db_session, token)
     assert result == (1, "read")

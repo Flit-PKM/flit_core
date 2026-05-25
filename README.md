@@ -113,10 +113,11 @@ When `MCP_ENABLED=true`, MCP OAuth uses the same public URL as the rest of the A
 2. Clients open `GET /mcp/oauth/authorize` (PKCE + `resource={public_url}/mcp`) for the Flit login and consent UI.
 3. Clients exchange the code at `POST /mcp/oauth/token` and call `POST /mcp` with the Bearer token.
 
-**Client registration (no dynamic registration):**
+**Client registration:**
 
 - **CIMD (recommended):** Host a JSON metadata document at an HTTPS URL and use that URL as `client_id`. The server advertises `client_id_metadata_document_supported: true` in `/.well-known/oauth-authorization-server`.
 - **Pre-registered:** Set `MCP_OAUTH_STATIC_CLIENTS_JSON` with known `client_id` and `redirect_uris` for clients that do not support CIMD yet.
+- **Dynamic Client Registration (opt-in):** Set `MCP_OAUTH_DCR_ENABLED=true`. New desktop clients open the browser to `GET /mcp/oauth/authorize` with `client_id=dynamic`, `client_name`, PKCE, and `redirect_uri` (no Flit login JWT in the app). After login and consent, the redirect includes `code`, `state`, and `client_id`; exchange at `POST /mcp/oauth/token`. Subscription (or access grant) is required at login when billing is configured. RFC 7591 clients may also call unauthenticated `POST /mcp/oauth/register` (advertised as `registration_endpoint` in metadata).
 
 **Manual verification:**
 

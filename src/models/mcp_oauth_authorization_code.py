@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import ForeignKey, String, Text
+from sqlalchemy import Boolean, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .base import Base
@@ -36,6 +36,11 @@ class McpOAuthPendingAuthorization(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     state: Mapped[str] = mapped_column(String(128), unique=True, nullable=False, index=True)
     client_id: Mapped[str] = mapped_column(String(512), nullable=False)
+    client_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    logo_uri: Mapped[str | None] = mapped_column(Text, nullable=True)
+    dynamic_registration: Mapped[bool] = mapped_column(
+        Boolean(), nullable=False, default=False
+    )
     redirect_uri: Mapped[str] = mapped_column(Text, nullable=False)
     resource: Mapped[str] = mapped_column(Text, nullable=False)
     scopes: Mapped[str] = mapped_column(String(255), nullable=False)

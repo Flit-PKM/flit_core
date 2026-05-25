@@ -153,7 +153,7 @@ async def test_access_codes_list_and_revoke(test_client, test_db_session):
     await test_db_session.commit()
     token = _login_json(test_client, "acadmin@example.com", "adminpass123")
     cr = test_client.get(
-        "/api/access-codes/create?period_weeks=4&includes_encryption=false",
+        "/api/access-codes/create?period_weeks=4",
         headers={"Authorization": f"Bearer {token}"},
     )
     assert cr.status_code == status.HTTP_201_CREATED

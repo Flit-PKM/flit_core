@@ -13,6 +13,15 @@ from config import settings
 from database.session import get_async_session
 from exceptions import AuthenticationError, ValidationError
 from flit_mcp.oauth.cimd import resolve_oauth_client
+from flit_mcp.oauth.dcr import (
+    dcr_enabled,
+    is_dynamic_client_id,
+    pending_display_client,
+    register_oauth_client,
+    registration_response_payload,
+    user_has_mcp_entitlement,
+    validate_registration_request,
+)
 from flit_mcp.oauth.metadata import (
     oauth_authorization_server_metadata,
     oauth_protected_resource_metadata,
@@ -31,17 +40,39 @@ from service.mcp_oauth import (
     mcp_issuer,
     public_base_url,
     redirect_uri_allowed,
+    redirect_uri_is_valid_scheme,
     refresh_mcp_access_token,
     resolve_resource_param,
     set_pending_user,
 )
 from service.user import create_user, get_user_by_email, touch_last_login
 from auth.username_from_email import derive_username_from_email
-from schemas.mcp_oauth import McpOAuthRevokeResponse, McpOAuthTokenResponse
+from schemas.mcp_oauth import (
+    McpOAuthClientRegistrationRequest,
+    McpOAuthClientRegistrationResponse,
+    McpOAuthRevokeResponse,
+    McpOAuthTokenResponse,
+)
+from flit_mcp.oauth.clients import McpOAuthClient
 
 router = APIRouter(prefix="/mcp/oauth", tags=["mcp-oauth"])
 
 MCP_SESSION_COOKIE = "mcp_oauth_state"
+MCP_ENTITLEMENT_ERROR = (
+    "An active subscription is required to connect MCP clients."
+)
+
+
+async def _client_for_pending(
+    db: AsyncSession,
+    pending,
+) -> McpOAuthClient:
+    if pending.dynamic_registration:
+        return pending_display_client(pending)
+    client = await resolve_oauth_client(db, pending.client_id)
+    if not client:
+        raise HTTPException(status_code=400, detail="Unknown client")
+    return client
 
 
 def _redirect_is_localhost(redirect_uri: str) -> bool:
@@ -191,6 +222,8 @@ async def authorize(
     code_challenge_method: str = Query(default="S256"),
     scope: Optional[str] = Query(None),
     resource: Optional[str] = Query(None),
+    client_name: Optional[str] = Query(None),
+    logo_uri: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_async_session),
 ):
     if response_type != "code":
@@ -203,13 +236,45 @@ async def authorize(
     except ValidationError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
+    normalized_scope = normalize_requested_scope(scope)
+
+    if is_dynamic_client_id(client_id):
+        if not dcr_enabled():
+            raise HTTPException(
+                status_code=400, detail="Dynamic client registration is not enabled"
+            )
+        try:
+            validate_registration_request(
+                client_name=client_name,
+                redirect_uris=[redirect_uri],
+            )
+        except ValidationError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+        if not redirect_uri_is_valid_scheme(redirect_uri):
+            raise HTTPException(status_code=400, detail="Invalid redirect_uri")
+
+        pending = await create_pending_authorization(
+            db,
+            state=state,
+            client_id=client_id,
+            redirect_uri=redirect_uri,
+            resource=resolved_resource,
+            scope=normalized_scope,
+            code_challenge=code_challenge,
+            code_challenge_method=code_challenge_method,
+            client_name=str(client_name).strip(),
+            logo_uri=logo_uri,
+            dynamic_registration=True,
+        )
+        client = pending_display_client(pending)
+        return _html_for_pending(pending, client)
+
     client = await resolve_oauth_client(db, client_id)
     if not client:
         raise HTTPException(status_code=400, detail="Unknown client_id")
     if not redirect_uri_allowed(redirect_uri, client):
         raise HTTPException(status_code=400, detail="Invalid redirect_uri")
 
-    normalized_scope = normalize_requested_scope(scope)
     pending = await create_pending_authorization(
         db,
         state=state,
@@ -241,9 +306,7 @@ async def oauth_login(
     pending = await get_pending_by_state(db, state)
     if not pending:
         raise HTTPException(status_code=400, detail="Invalid or expired authorization session")
-    client = await resolve_oauth_client(db, pending.client_id)
-    if not client:
-        raise HTTPException(status_code=400, detail="Unknown client")
+    client = await _client_for_pending(db, pending)
 
     try:
         user = await authenticate_user(db, email, password)
@@ -263,8 +326,19 @@ async def oauth_login(
     if not user.is_active:
         raise HTTPException(status_code=403, detail="Inactive user")
     await touch_last_login(db, user.id)
-    await set_pending_user(db, pending, user.id)
 
+    if pending.dynamic_registration and not await user_has_mcp_entitlement(db, user.id):
+        return _html_for_pending(
+            pending,
+            client,
+            error=MCP_ENTITLEMENT_ERROR,
+            google_enabled=bool(
+                settings.MCP_GOOGLE_OAUTH_CLIENT_ID
+                and settings.MCP_GOOGLE_OAUTH_CLIENT_SECRET
+            ),
+        )
+
+    await set_pending_user(db, pending, user.id)
     return _html_for_pending(pending, client)
 
 
@@ -292,9 +366,29 @@ async def oauth_consent(
     if pending.user_id is None:
         raise HTTPException(status_code=401, detail="Not authenticated")
 
+    include_client_id = pending.dynamic_registration
+    if pending.dynamic_registration:
+        if not await user_has_mcp_entitlement(db, pending.user_id):
+            raise HTTPException(status_code=403, detail=MCP_ENTITLEMENT_ERROR)
+        registered = await register_oauth_client(
+            db,
+            client_name=pending.client_name or "Application",
+            redirect_uris=[pending.redirect_uri],
+            logo_uri=pending.logo_uri,
+            owner_user_id=pending.user_id,
+        )
+        pending.client_id = registered.client_id
+        pending.dynamic_registration = False
+        await db.flush()
+
     code = await issue_authorization_code(db, pending)
     return RedirectResponse(
-        build_redirect_with_code(pending.redirect_uri, code, state),
+        build_redirect_with_code(
+            pending.redirect_uri,
+            code,
+            state,
+            client_id=pending.client_id if include_client_id else None,
+        ),
         status_code=302,
     )
 
@@ -326,9 +420,7 @@ async def google_callback(
     pending = await get_pending_by_state(db, state)
     if not pending:
         raise HTTPException(status_code=400, detail="Invalid or expired authorization session")
-    client = await resolve_oauth_client(db, pending.client_id)
-    if not client:
-        raise HTTPException(status_code=400, detail="Unknown client")
+    client = await _client_for_pending(db, pending)
 
     redirect_uri = f"{mcp_issuer()}/mcp/oauth/callback/google"
     async with httpx.AsyncClient() as http:
@@ -371,9 +463,47 @@ async def google_callback(
         raise HTTPException(status_code=403, detail="Inactive user")
 
     await touch_last_login(db, user.id)
-    await set_pending_user(db, pending, user.id)
 
+    if pending.dynamic_registration and not await user_has_mcp_entitlement(db, user.id):
+        return _html_for_pending(
+            pending,
+            client,
+            error=MCP_ENTITLEMENT_ERROR,
+            google_enabled=bool(
+                settings.MCP_GOOGLE_OAUTH_CLIENT_ID
+                and settings.MCP_GOOGLE_OAUTH_CLIENT_SECRET
+            ),
+        )
+
+    await set_pending_user(db, pending, user.id)
     return _html_for_pending(pending, client)
+
+
+@router.post(
+    "/register",
+    response_model=McpOAuthClientRegistrationResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+@limiter.limit("10/minute")
+async def register_client(
+    request: Request,
+    body: McpOAuthClientRegistrationRequest,
+    db: AsyncSession = Depends(get_async_session),
+):
+    if not dcr_enabled():
+        raise HTTPException(status_code=404, detail="Not found")
+    try:
+        client = await register_oauth_client(
+            db,
+            client_name=body.client_name,
+            redirect_uris=body.redirect_uris,
+            logo_uri=body.logo_uri,
+            owner_user_id=None,
+        )
+    except ValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    payload = registration_response_payload(client)
+    return McpOAuthClientRegistrationResponse(**payload)
 
 
 @router.post("/token", response_model=McpOAuthTokenResponse)

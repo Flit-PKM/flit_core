@@ -19,7 +19,6 @@ from .revoked_jwt import RevokedJwt
 from .subscription import Subscription
 from .superuser import Superuser
 from .user import User
-from .user_encryption_key import UserEncryptionKey
 from .mcp_access_token import McpAccessToken
 from .mcp_refresh_token import McpRefreshToken
 from .mcp_api_key import McpApiKey
@@ -28,3 +27,4 @@ from .mcp_oauth_authorization_code import (
     McpOAuthPendingAuthorization,
 )
 from .mcp_oauth_cimd_cache import McpOAuthCimdCache
+from .mcp_oauth_registered_client import McpOAuthRegisteredClient

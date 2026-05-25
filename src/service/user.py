@@ -112,27 +112,17 @@ async def update_user(
         raise NotFoundError("User not found")
     
     user_dict = user.model_dump(exclude_unset=True)
-
-    if db_user.password_hash is None:
-        logger.warning(f"Update attempt for OAuth-only user {user_id} (no password set)")
-        raise AuthenticationError(
-            "Set a password first (use forgot password with this email), then you can update your profile."
-        )
-
-    # Extract and verify current_password (required for all updates)
     current_password = user_dict.pop('current_password', None)
-    if not current_password:
-        logger.warning(f"Update attempt without current_password for user {user_id}")
-        raise AuthenticationError("Current password is required")
 
-    # Verify current password before allowing any updates
-    if not verify_password(current_password, db_user.password_hash):
-        logger.warning(f"Update attempt with incorrect current_password for user {user_id}")
-        raise AuthenticationError("Current password is incorrect")
-    
-    # Handle password hashing if password is provided
     if 'password' in user_dict:
         password = user_dict.pop('password')
+        if db_user.password_hash is not None:
+            if not current_password:
+                logger.warning(f"Password change without current_password for user {user_id}")
+                raise AuthenticationError("Current password is required")
+            if not verify_password(current_password, db_user.password_hash):
+                logger.warning(f"Password change with incorrect current_password for user {user_id}")
+                raise AuthenticationError("Current password is incorrect")
         user_dict['password_hash'] = get_password_hash(password)
     
     # Normalize email to lowercase and strip whitespace if it's being updated

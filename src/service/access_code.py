@@ -27,7 +27,6 @@ def _generate_code() -> str:
 async def create_access_code(
     db: AsyncSession,
     period_weeks: int,
-    includes_encryption: bool,
     created_by: int,
 ) -> AccessCode:
     """
@@ -36,7 +35,6 @@ async def create_access_code(
     """
     if period_weeks < 1 or period_weeks > 52:
         raise ValidationError("period_weeks must be between 1 and 52")
-    # Ensure uniqueness
     for _ in range(10):
         code = _generate_code()
         existing = await db.execute(select(AccessCode).where(AccessCode.code == code))
@@ -47,7 +45,6 @@ async def create_access_code(
     access_code = AccessCode(
         code=code,
         period_weeks=period_weeks,
-        includes_encryption=includes_encryption,
         created_by=created_by,
     )
     db.add(access_code)
@@ -87,7 +84,6 @@ async def activate_code(
         user_id=user_id,
         access_code_id=access_code.id,
         expires_at=expires_at,
-        includes_encryption=access_code.includes_encryption,
     )
     db.add(grant)
     access_code.activated_at = now
@@ -145,9 +141,3 @@ async def revoke_access_code(db: AsyncSession, code: str) -> AccessCode:
     await db.flush()
     await db.refresh(access_code)
     return access_code
-
-
-async def user_has_encryption_grant(db: AsyncSession, user_id: int) -> bool:
-    """True if the user has a non-expired access grant with includes_encryption=True."""
-    grant = await get_active_access_grant(db, user_id)
-    return grant is not None and grant.includes_encryption

@@ -20,7 +20,6 @@ from models.plan_subscription import PlanSubscription
 from models.relationship import Relationship
 from models.superuser import Superuser
 from models.user import User
-from models.user_encryption_key import UserEncryptionKey
 
 
 async def hard_delete_user(db: AsyncSession, user_id: int) -> None:
@@ -50,9 +49,6 @@ async def hard_delete_user(db: AsyncSession, user_id: int) -> None:
     await db.execute(delete(ConnectedApp).where(ConnectedApp.user_id == user_id))
     await db.execute(delete(PlanSubscription).where(PlanSubscription.user_id == user_id))
     await db.execute(delete(AccessCodeGrant).where(AccessCodeGrant.user_id == user_id))
-    await db.execute(
-        delete(UserEncryptionKey).where(UserEncryptionKey.user_id == user_id)
-    )
     await db.execute(delete(FeedbackResponse).where(FeedbackResponse.author_user_id == user_id))
     await db.execute(delete(Superuser).where(Superuser.user_id == user_id))
     await db.execute(delete(User).where(User.id == user_id))

@@ -106,34 +106,22 @@ def is_billing_configured() -> bool:
         return False
     return bool(
         settings.DODO_PAYMENTS_SUBSCRIPTION_PRODUCT_ID
-        or settings.DODO_PAYMENTS_MONTHLY_CORE_AI
-        or settings.DODO_PAYMENTS_MONTHLY_CORE_AI_ENCRYPTION
-        or settings.DODO_PAYMENTS_ANNUAL_CORE_AI
-        or settings.DODO_PAYMENTS_ANNUAL_CORE_AI_ENCRYPTION
+        or settings.DODO_PAYMENTS_MONTHLY
+        or settings.DODO_PAYMENTS_ANNUAL
     )
 
 
 def is_plans_configured() -> bool:
-    """True if Dodo Payments API key and at least one of the 4 plan product IDs are set."""
+    """True if Dodo Payments API key and at least one plan product ID are set."""
     if not settings.DODO_PAYMENTS_API_KEY:
         return False
-    return bool(
-        settings.DODO_PAYMENTS_MONTHLY_CORE_AI
-        or settings.DODO_PAYMENTS_MONTHLY_CORE_AI_ENCRYPTION
-        or settings.DODO_PAYMENTS_ANNUAL_CORE_AI
-        or settings.DODO_PAYMENTS_ANNUAL_CORE_AI_ENCRYPTION
-    )
+    return bool(settings.DODO_PAYMENTS_MONTHLY or settings.DODO_PAYMENTS_ANNUAL)
 
 
 def get_allowed_product_ids() -> list[str]:
-    """Return the 4 plan product IDs allowed for checkout (from env). Empty if none configured."""
+    """Return plan product IDs allowed for checkout (from env). Empty if none configured."""
     ids: list[str] = []
-    for pid in (
-        settings.DODO_PAYMENTS_MONTHLY_CORE_AI,
-        settings.DODO_PAYMENTS_MONTHLY_CORE_AI_ENCRYPTION,
-        settings.DODO_PAYMENTS_ANNUAL_CORE_AI,
-        settings.DODO_PAYMENTS_ANNUAL_CORE_AI_ENCRYPTION,
-    ):
+    for pid in (settings.DODO_PAYMENTS_MONTHLY, settings.DODO_PAYMENTS_ANNUAL):
         if pid and pid.strip():
             ids.append(pid.strip())
     return ids
@@ -215,22 +203,15 @@ def _product_to_plan_dict(product: Any) -> dict[str, Any]:
     }
 
 
-PlanTypeLiteral = Literal[
-    "monthly_core_ai",
-    "monthly_core_ai_encryption",
-    "annual_core_ai",
-    "annual_core_ai_encryption",
-]
+PlanTypeLiteral = Literal["monthly", "annual"]
 
 
 def _get_plan_slots() -> list[tuple[PlanTypeLiteral, str]]:
-    """Return (plan_type, product_id) for each configured slot. Order: monthly, monthly+enc, annual, annual+enc."""
+    """Return (plan_type, product_id) for each configured slot."""
     slots: list[tuple[PlanTypeLiteral, str]] = []
     for plan_type, pid in [
-        ("monthly_core_ai", settings.DODO_PAYMENTS_MONTHLY_CORE_AI),
-        ("monthly_core_ai_encryption", settings.DODO_PAYMENTS_MONTHLY_CORE_AI_ENCRYPTION),
-        ("annual_core_ai", settings.DODO_PAYMENTS_ANNUAL_CORE_AI),
-        ("annual_core_ai_encryption", settings.DODO_PAYMENTS_ANNUAL_CORE_AI_ENCRYPTION),
+        ("monthly", settings.DODO_PAYMENTS_MONTHLY),
+        ("annual", settings.DODO_PAYMENTS_ANNUAL),
     ]:
         if pid and pid.strip():
             slots.append((plan_type, pid.strip()))
@@ -239,8 +220,8 @@ def _get_plan_slots() -> list[tuple[PlanTypeLiteral, str]]:
 
 def _fetch_plans_from_dodo() -> list[dict[str, Any]]:
     """
-    Fetch the 4 env-configured plans from Dodo by product ID.
-    Returns plans in fixed order. Each plan has plan_type, show_discounted_badge (annual only), includes_encryption.
+    Fetch env-configured plans from Dodo by product ID.
+    Returns plans in fixed order. Each plan has plan_type and show_discounted_badge (annual only).
     Sync, runs in thread.
     """
     client = _get_dodo_client()
@@ -254,9 +235,7 @@ def _fetch_plans_from_dodo() -> list[dict[str, Any]]:
             continue
         plan = _product_to_plan_dict(product)
         plan["plan_type"] = plan_type
-        plan["show_discounted_badge"] = plan_type in ("annual_core_ai", "annual_core_ai_encryption")
-        plan["includes_encryption"] = "encryption" in plan_type
-        # Optional: attach addon/meter details if product has them in Dodo
+        plan["show_discounted_badge"] = plan_type == "annual"
         addon_ids = getattr(product, "addons", None) or []
         for addon_id in addon_ids:
             if not addon_id:
@@ -308,7 +287,6 @@ async def get_plans() -> list[dict[str, Any]]:
     _plans_cache = plans
     _plans_cache_time = now
 
-    # Log plans including full details for debugging
     try:
         plans_json = json.dumps(plans, default=str)
     except (TypeError, ValueError):
@@ -324,7 +302,7 @@ async def create_checkout_session(
     return_url: Optional[str] = None,
 ) -> dict[str, str]:
     """
-    Create a Dodo Checkout Session for the given plan product (one of the 4 bundle product IDs).
+    Create a Dodo Checkout Session for the given plan product.
     Checkout is single-product only; no addons or separate usage product.
     """
     if not is_checkout_configured():
@@ -540,7 +518,6 @@ async def _handle_subscription_event(
     data: dict[str, Any],
 ) -> None:
     """Create or update PlanSubscription from subscription event data."""
-    # Dodo sends subscription object in data (payload_type + subscription fields)
     obj = data
     sub_id = obj.get("id") or obj.get("subscription_id")
     customer_id = obj.get("customer_id") or (obj.get("customer") or {}).get("id") if isinstance(obj.get("customer"), dict) else None
@@ -552,7 +529,6 @@ async def _handle_subscription_event(
     if not customer_id:
         customer_id = obj.get("customer_id", "")
 
-    # Resolve user_id from metadata (set at checkout) or existing row
     user_id = None
     metadata = obj.get("metadata") or {}
     if isinstance(metadata, dict):
@@ -650,9 +626,7 @@ async def _handle_payment_event(
     data: dict[str, Any],
 ) -> None:
     """Optionally update subscription or link payment to subscription."""
-    payload_type = data.get("payload_type")
     obj = data
-    payment_id = obj.get("id")
     subscription_id = obj.get("subscription_id")
     if not subscription_id:
         return
@@ -667,4 +641,3 @@ async def _handle_payment_event(
     if event_type == "payment.failed":
         row.status = "past_due"
         logger.info("Marked PlanSubscription %s past_due after payment.failed", subscription_id)
-    # payment.succeeded: subscription.renewed or subscription.active usually covers it; no change needed unless you track last_payment_id

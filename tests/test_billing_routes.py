@@ -21,11 +21,11 @@ async def test_get_plans_when_not_configured_returns_empty(test_client):
 
 @pytest.mark.asyncio
 async def test_get_plans_returns_plan_details_when_configured(test_client):
-    """GET /billing/plans returns 200 with 4 plans when configured."""
+    """GET /billing/plans returns 200 with 2 plans when configured."""
     sample_plans = [
         {
-            "product_id": "prod_monthly_core_ai",
-            "name": "Monthly Core+AI",
+            "product_id": "prod_monthly",
+            "name": "Monthly",
             "description": "Monthly subscription",
             "image": "https://example.com/img.png",
             "is_recurring": True,
@@ -34,28 +34,12 @@ async def test_get_plans_returns_plan_details_when_configured(test_client):
             "tax_category": "saas",
             "addons": [],
             "meters": [],
-            "plan_type": "monthly_core_ai",
+            "plan_type": "monthly",
             "show_discounted_badge": False,
-            "includes_encryption": False,
         },
         {
-            "product_id": "prod_monthly_core_ai_enc",
-            "name": "Monthly Core+AI+Encryption",
-            "description": "Monthly with encryption",
-            "image": None,
-            "is_recurring": True,
-            "price": {"type": "recurring_price", "currency": "usd", "price": 1199},
-            "metadata": {},
-            "tax_category": "saas",
-            "addons": [],
-            "meters": [],
-            "plan_type": "monthly_core_ai_encryption",
-            "show_discounted_badge": False,
-            "includes_encryption": True,
-        },
-        {
-            "product_id": "prod_annual_core_ai",
-            "name": "Annual Core+AI",
+            "product_id": "prod_annual",
+            "name": "Annual",
             "description": "Annual subscription",
             "image": None,
             "is_recurring": True,
@@ -64,24 +48,8 @@ async def test_get_plans_returns_plan_details_when_configured(test_client):
             "tax_category": "saas",
             "addons": [],
             "meters": [],
-            "plan_type": "annual_core_ai",
+            "plan_type": "annual",
             "show_discounted_badge": True,
-            "includes_encryption": False,
-        },
-        {
-            "product_id": "prod_annual_core_ai_enc",
-            "name": "Annual Core+AI+Encryption",
-            "description": "Annual with encryption",
-            "image": None,
-            "is_recurring": True,
-            "price": {"type": "recurring_price", "currency": "usd", "price": 11999},
-            "metadata": {},
-            "tax_category": "saas",
-            "addons": [],
-            "meters": [],
-            "plan_type": "annual_core_ai_encryption",
-            "show_discounted_badge": True,
-            "includes_encryption": True,
         },
     ]
 
@@ -92,18 +60,12 @@ async def test_get_plans_returns_plan_details_when_configured(test_client):
         response = test_client.get("/api/billing/plans")
     assert response.status_code == 200
     data = response.json()
-    assert len(data) == 4
-    assert data[0]["product_id"] == "prod_monthly_core_ai"
-    assert data[0]["plan_type"] == "monthly_core_ai"
+    assert len(data) == 2
+    assert data[0]["product_id"] == "prod_monthly"
+    assert data[0]["plan_type"] == "monthly"
     assert data[0]["show_discounted_badge"] is False
-    assert data[0]["includes_encryption"] is False
-    assert data[1]["plan_type"] == "monthly_core_ai_encryption"
-    assert data[1]["includes_encryption"] is True
-    assert data[2]["plan_type"] == "annual_core_ai"
-    assert data[2]["show_discounted_badge"] is True
-    assert data[3]["plan_type"] == "annual_core_ai_encryption"
-    assert data[3]["show_discounted_badge"] is True
-    assert data[3]["includes_encryption"] is True
+    assert data[1]["plan_type"] == "annual"
+    assert data[1]["show_discounted_badge"] is True
 
 
 def _override_checkout_auth(user_id: int = 1):
@@ -217,7 +179,7 @@ async def test_checkout_disallowed_product_id_returns_400(test_client):
         mock_client = MagicMock()
         mock_client.checkout_sessions.create.return_value = mock_checkout_resp
 
-        allowed = ["prod_m_core_ai", "prod_m_core_ai_enc", "prod_a_core_ai", "prod_a_core_ai_enc"]
+        allowed = ["prod_monthly", "prod_annual"]
         with patch("routes.billing.is_checkout_configured", return_value=True):
             with patch("service.billing.get_allowed_product_ids", return_value=allowed):
                 with patch("service.billing._get_dodo_client", return_value=mock_client):
@@ -232,7 +194,6 @@ async def test_checkout_disallowed_product_id_returns_400(test_client):
     mock_client.checkout_sessions.create.assert_not_called()
 
 
-# ---- POST /billing/complete ----
 @pytest.mark.asyncio
 async def test_billing_complete_requires_auth(test_client):
     """POST /billing/complete without auth returns 401."""

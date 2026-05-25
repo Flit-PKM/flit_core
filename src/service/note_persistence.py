@@ -17,20 +17,18 @@ async def insert_note(
     *,
     plaintext_title: str,
     plaintext_content: str,
-    encryption_enabled: bool,
 ) -> Note:
-    """Add a new note to the DB, then update notesearch if not encrypted."""
+    """Add a new note to the DB, then update notesearch."""
     session.add(note)
     await session.flush()
     await session.refresh(note)
-    if not encryption_enabled:
-        await upsert_notesearch(
-            session,
-            note.id,
-            note.user_id,
-            plaintext_title,
-            plaintext_content,
-        )
+    await upsert_notesearch(
+        session,
+        note.id,
+        note.user_id,
+        plaintext_title,
+        plaintext_content,
+    )
     return note
 
 
@@ -40,19 +38,17 @@ async def update_note(
     *,
     plaintext_title: str,
     plaintext_content: str,
-    encryption_enabled: bool,
 ) -> Note:
-    """Flush and refresh an already-modified note, then update notesearch if not encrypted."""
+    """Flush and refresh an already-modified note, then update notesearch."""
     await session.flush()
     await session.refresh(note)
-    if not encryption_enabled:
-        await upsert_notesearch(
-            session,
-            note.id,
-            note.user_id,
-            plaintext_title,
-            plaintext_content,
-        )
+    await upsert_notesearch(
+        session,
+        note.id,
+        note.user_id,
+        plaintext_title,
+        plaintext_content,
+    )
     return note
 
 

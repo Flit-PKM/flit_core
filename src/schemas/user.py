@@ -78,10 +78,10 @@ class UserCreate(BaseModel):
 
 
 class UserUpdate(BaseModel):
-    current_password: str = Field(
-        ...,
-        description="Current password (required for verification when updating user details)",
-        examples=["CurrentPass123!"]
+    current_password: Optional[str] = Field(
+        None,
+        description="Current password (required only when changing password and the account already has one)",
+        examples=["CurrentPass123!", None]
     )
     username: Optional[str] = Field(
         None,
@@ -120,7 +120,6 @@ class UserAccessGrantRead(BaseModel):
     """Active access-code grant: time-limited access without a subscription."""
 
     expires_at: str = Field(..., description="When the grant expires (ISO 8601)")
-    includes_encryption: bool = Field(..., description="Whether the grant includes encryption")
 
 
 class UserRead(UserBase):

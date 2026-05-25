@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import settings
 from flit_mcp.oauth.clients import McpOAuthClient, load_static_oauth_clients
+from flit_mcp.oauth.dcr import load_registered_oauth_client
 from models.mcp_oauth_cimd_cache import McpOAuthCimdCache
 
 CIMD_MAX_BYTES = 64 * 1024
@@ -225,4 +226,7 @@ async def resolve_oauth_client(
     static = load_static_oauth_clients().get(client_id)
     if static:
         return static
+    registered = await load_registered_oauth_client(session, client_id)
+    if registered:
+        return registered
     return await resolve_cimd_client(session, client_id)

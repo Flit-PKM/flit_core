@@ -1,11 +1,11 @@
-"""Access code models: single-use codes that grant time-limited Core+AI or Core+AI+Encryption access."""
+"""Access code models: single-use codes that grant time-limited sync access."""
 
 from __future__ import annotations
 
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, func
+from sqlalchemy import DateTime, ForeignKey, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base
@@ -19,7 +19,6 @@ class AccessCode(Base):
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     code: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
     period_weeks: Mapped[int] = mapped_column(Integer, nullable=False)
-    includes_encryption: Mapped[bool] = mapped_column(Boolean, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -72,7 +71,6 @@ class AccessCodeGrant(Base):
         DateTime(timezone=True),
         nullable=False,
     )
-    includes_encryption: Mapped[bool] = mapped_column(Boolean, nullable=False)
 
     access_code = relationship(
         "AccessCode",

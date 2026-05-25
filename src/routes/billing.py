@@ -35,10 +35,10 @@ router = APIRouter(
 
 
 class CheckoutCreate(BaseModel):
-    """Request to create a checkout session for a chosen plan (one of the 4 bundle products)."""
+    """Request to create a checkout session for a chosen plan (monthly or annual)."""
 
     product_id: str
-    """Dodo product ID for the plan (from GET /billing/plans). One of the 4 Core+AI (with or without Encryption) products."""
+    """Dodo product ID for the plan (from GET /billing/plans)."""
 
     return_url: Optional[str] = None
 
@@ -96,12 +96,7 @@ class MeterDetailResponse(BaseModel):
     measurement_unit: Optional[str] = None
 
 
-PlanTypeLiteral = Literal[
-    "monthly_core_ai",
-    "monthly_core_ai_encryption",
-    "annual_core_ai",
-    "annual_core_ai_encryption",
-]
+PlanTypeLiteral = Literal["monthly", "annual"]
 
 
 class PlanDetailResponse(BaseModel):
@@ -119,7 +114,6 @@ class PlanDetailResponse(BaseModel):
     meters: List[MeterDetailResponse] = []
     plan_type: Optional[PlanTypeLiteral] = None
     show_discounted_badge: bool = False
-    includes_encryption: bool = False
 
 
 @router.get("/plans", response_model=List[PlanDetailResponse])

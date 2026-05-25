@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from flit_mcp.oauth.dcr import dcr_enabled
 from service.mcp_oauth import mcp_issuer
 
 
@@ -15,7 +16,7 @@ def oauth_protected_resource_metadata() -> dict:
 
 def oauth_authorization_server_metadata() -> dict:
     issuer = mcp_issuer()
-    return {
+    metadata: dict = {
         "issuer": issuer,
         "authorization_endpoint": f"{issuer}/mcp/oauth/authorize",
         "token_endpoint": f"{issuer}/mcp/oauth/token",
@@ -27,3 +28,6 @@ def oauth_authorization_server_metadata() -> dict:
         "scopes_supported": ["read", "read write"],
         "client_id_metadata_document_supported": True,
     }
+    if dcr_enabled():
+        metadata["registration_endpoint"] = f"{issuer}/mcp/oauth/register"
+    return metadata

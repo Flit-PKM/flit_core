@@ -62,30 +62,26 @@ async def revoke_access_code_endpoint(
 )
 async def create_code(
     period_weeks: int,
-    includes_encryption: bool = False,
     current_user: User = Depends(get_current_superuser),
     db: AsyncSession = Depends(get_async_session),
 ) -> AccessCodeCreateResponse:
     """
     Create a new single-use access code. Superuser only.
-    Query: period_weeks (1-52), includes_encryption (default false).
+    Query: period_weeks (1-52).
     """
     access_code = await create_access_code(
         db=db,
         period_weeks=period_weeks,
-        includes_encryption=includes_encryption,
         created_by=current_user.id,
     )
     logger.info(
-        "Access code created by superuser %s: period_weeks=%s includes_encryption=%s",
+        "Access code created by superuser %s: period_weeks=%s",
         current_user.id,
         period_weeks,
-        includes_encryption,
     )
     return AccessCodeCreateResponse(
         code=access_code.code,
         period_weeks=access_code.period_weeks,
-        includes_encryption=access_code.includes_encryption,
     )
 
 
@@ -99,10 +95,7 @@ async def activate(
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_async_session),
 ) -> AccessCodeActivateResponse:
-    """
-    Activate an access code for the current user.
-    Returns grant expiry and whether encryption is included.
-    """
+    """Activate an access code for the current user. Returns grant expiry."""
     code = (body.code or "").strip()
     if not code:
         raise ValidationError("code is required and cannot be empty")
@@ -110,7 +103,4 @@ async def activate(
         grant = await activate_code(db=db, code=code, user_id=current_user.id)
     except ConflictError:
         raise
-    return AccessCodeActivateResponse(
-        expires_at=grant.expires_at.isoformat(),
-        includes_encryption=grant.includes_encryption,
-    )
+    return AccessCodeActivateResponse(expires_at=grant.expires_at.isoformat())

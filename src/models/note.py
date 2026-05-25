@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from enum import StrEnum
 
-from sqlalchemy import Boolean, Enum, ForeignKey, SmallInteger, String, Text, func
+from sqlalchemy import Boolean, Enum, ForeignKey, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .base import Base
@@ -46,4 +46,3 @@ class Note(Base):
         index=True,
         nullable=True,
     )
-    encryption_version: Mapped[int | None] = mapped_column(SmallInteger, nullable=True, default=None)

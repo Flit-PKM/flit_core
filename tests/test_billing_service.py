@@ -64,13 +64,11 @@ def _make_meter(meter_id: str, name: str, event_name: str = "api_call"):
 
 
 @pytest.mark.asyncio
-async def test_get_plans_fetches_four_plans_with_plan_type_and_badge():
-    """get_plans returns 4 plans in order with plan_type, show_discounted_badge (annual), includes_encryption."""
+async def test_get_plans_fetches_two_plans_with_plan_type_and_badge():
+    """get_plans returns 2 plans in order with plan_type and show_discounted_badge (annual only)."""
     products = [
-        _make_product("prod_m_core_ai", "Monthly Core+AI", addons=[]),
-        _make_product("prod_m_core_ai_enc", "Monthly Core+AI+Encryption", addons=[]),
-        _make_product("prod_a_core_ai", "Annual Core+AI", addons=[]),
-        _make_product("prod_a_core_ai_enc", "Annual Core+AI+Encryption", addons=[]),
+        _make_product("prod_monthly", "Monthly", addons=[]),
+        _make_product("prod_annual", "Annual", addons=[]),
     ]
     mock_client = MagicMock()
     mock_client.products.retrieve.side_effect = products
@@ -82,34 +80,21 @@ async def test_get_plans_fetches_four_plans_with_plan_type_and_badge():
         patch("service.billing._get_dodo_client", return_value=mock_client),
         patch("service.billing.settings") as mock_settings,
     ):
-        mock_settings.DODO_PAYMENTS_MONTHLY_CORE_AI = "prod_m_core_ai"
-        mock_settings.DODO_PAYMENTS_MONTHLY_CORE_AI_ENCRYPTION = "prod_m_core_ai_enc"
-        mock_settings.DODO_PAYMENTS_ANNUAL_CORE_AI = "prod_a_core_ai"
-        mock_settings.DODO_PAYMENTS_ANNUAL_CORE_AI_ENCRYPTION = "prod_a_core_ai_enc"
+        mock_settings.DODO_PAYMENTS_MONTHLY = "prod_monthly"
+        mock_settings.DODO_PAYMENTS_ANNUAL = "prod_annual"
         plans = await billing.get_plans()
 
-    assert len(plans) == 4
-    assert plans[0]["product_id"] == "prod_m_core_ai"
-    assert plans[0]["plan_type"] == "monthly_core_ai"
+    assert len(plans) == 2
+    assert plans[0]["product_id"] == "prod_monthly"
+    assert plans[0]["plan_type"] == "monthly"
     assert plans[0]["show_discounted_badge"] is False
-    assert plans[0]["includes_encryption"] is False
 
-    assert plans[1]["plan_type"] == "monthly_core_ai_encryption"
-    assert plans[1]["includes_encryption"] is True
+    assert plans[1]["plan_type"] == "annual"
+    assert plans[1]["show_discounted_badge"] is True
 
-    assert plans[2]["plan_type"] == "annual_core_ai"
-    assert plans[2]["show_discounted_badge"] is True
-    assert plans[2]["includes_encryption"] is False
-
-    assert plans[3]["plan_type"] == "annual_core_ai_encryption"
-    assert plans[3]["show_discounted_badge"] is True
-    assert plans[3]["includes_encryption"] is True
-
-    assert mock_client.products.retrieve.call_count == 4
-    mock_client.products.retrieve.assert_any_call("prod_m_core_ai")
-    mock_client.products.retrieve.assert_any_call("prod_m_core_ai_enc")
-    mock_client.products.retrieve.assert_any_call("prod_a_core_ai")
-    mock_client.products.retrieve.assert_any_call("prod_a_core_ai_enc")
+    assert mock_client.products.retrieve.call_count == 2
+    mock_client.products.retrieve.assert_any_call("prod_monthly")
+    mock_client.products.retrieve.assert_any_call("prod_annual")
 
 
 @pytest.mark.asyncio
