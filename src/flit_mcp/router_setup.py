@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from config import settings
 from database.engine import AsyncSessionFactory
 from exceptions import BusinessLogicError, ValidationError
@@ -11,6 +13,8 @@ from flit_mcp.oauth.metadata import oauth_protected_resource_metadata
 from flit_mcp.rate_limit import check_mcp_rate_limit
 from service.mcp_oauth import mcp_issuer
 
+logger = logging.getLogger(__name__)
+
 
 async def _mcp_auth_validator(
     api_key: str | None,
@@ -18,11 +22,18 @@ async def _mcp_auth_validator(
 ) -> McpAuthContext | bool:
     token = bearer_token or api_key
     if not token:
+        logger.info("MCP auth rejected: no Authorization Bearer or X-API-Key")
         return False
     async with AsyncSessionFactory() as session:
         try:
             ctx = await resolve_mcp_auth(session, token)
             if not ctx:
+                logger.info(
+                    "MCP auth rejected: invalid or expired credentials "
+                    "(bearer=%s api_key=%s)",
+                    bool(bearer_token),
+                    bool(api_key),
+                )
                 return False
             check_mcp_rate_limit(ctx.user_id)
             await session.commit()
@@ -51,6 +62,8 @@ flit_mcp_router = MCPRouter(
     oauth_resource_metadata=oauth_protected_resource_metadata()
     if settings.MCP_ENABLED and _issuer_base_url()
     else None,
+    # Register GET /mcp so OAuth clients get 401 + WWW-Authenticate instead of SPA index.html.
+    legacy_sse=True,
     server_info={
         "name": "Flit Core MCP",
         "version": "0.1.0",

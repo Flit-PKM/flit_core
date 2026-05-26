@@ -92,6 +92,21 @@ async def test_oauth_authorization_server_metadata(mcp_enabled, test_client):
     data = response.json()
     assert data["issuer"] == "http://testserver"
     assert "authorization_endpoint" in data
+    assert data["authorization_endpoint"] == "http://testserver/mcp/oauth/authorize"
+
+
+@pytest.mark.asyncio
+async def test_get_mcp_unauthenticated_returns_401_not_spa(mcp_enabled, test_client):
+    """GET /mcp must hit MCP router (401), not the SPA index.html (200)."""
+    response = test_client.get("/mcp")
+    assert response.status_code == 401
+    content_type = response.headers.get("content-type", "")
+    assert "text/html" not in content_type
+    assert not response.text.lstrip().startswith("<!")
+    body = response.json()
+    www = response.headers.get("www-authenticate", "").lower()
+    assert "resource_metadata" in www or body.get("resource_metadata")
+    assert body.get("error") == "Authentication required"
 
 
 @pytest.mark.asyncio
@@ -321,6 +336,16 @@ async def test_oauth_token_authenticates_mcp_post(
     data = init_resp.json()
     assert "result" in data
     assert data["result"]["serverInfo"]["name"] == "Flit Core MCP"
+
+    tools_resp = test_client.post(
+        "/mcp",
+        headers=_mcp_headers(access_token),
+        json={"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
+    )
+    assert tools_resp.status_code == 200
+    tools_data = tools_resp.json()
+    assert "result" in tools_data
+    assert len(tools_data["result"].get("tools", [])) >= 1
 
 
 def test_openapi_includes_mcp_catalog_by_default(test_client):

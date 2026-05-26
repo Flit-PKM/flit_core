@@ -109,9 +109,11 @@ flit_core/
 
 When `MCP_ENABLED=true`, MCP OAuth uses the same public URL as the rest of the API (`PUBLIC_BASE_URL`, or `http://127.0.0.1:8000` in development when unset):
 
-1. Clients discover auth via `401` on `POST /mcp` and `/.well-known/oauth-protected-resource`.
-2. Clients open `GET /mcp/oauth/authorize` (PKCE + `resource={public_url}/mcp`) for the Flit login and consent UI.
+1. Clients discover auth via `401` on `POST /mcp` (and `GET /mcp` for browser popups) and `/.well-known/oauth-protected-resource`.
+2. Clients open `GET /mcp/oauth/authorize` (PKCE + `resource={public_url}/mcp`) for the Flit login and consent UI — **not** bare `GET /mcp` (that endpoint returns 401 or MCP metadata, not the login page).
 3. Clients exchange the code at `POST /mcp/oauth/token` and call `POST /mcp` with the Bearer token.
+
+If a connector shows a **blank popup** and “authenticated” without a Flit login screen, check server logs: you should see `GET /mcp/oauth/authorize`. If you only see `GET /mcp` with **200** and HTML, the request was hitting the SPA before `legacy_sse` was enabled on the MCP router. After a correct connect, `POST /mcp` with a valid token should return tools via `tools/list`; an empty tool list means MCP Bearer auth never succeeded.
 
 **Client registration:**
 
@@ -127,7 +129,9 @@ curl -sS -D - -o /dev/null -X POST "$PUBLIC_URL/mcp" \
   -H "Content-Type: application/json" \
   -H "MCP-Protocol-Version: 2025-06-18" \
   -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"t","version":"1"}}}'
+curl -sS -D - -o /dev/null "$PUBLIC_URL/mcp"  # expect 401 + WWW-Authenticate, not 200 HTML
 curl -sS "$PUBLIC_URL/.well-known/oauth-authorization-server" | jq .
+# issuer and authorization_endpoint must use the same host as PUBLIC_URL
 ```
 
 API keys (`flit_mcp_…`) remain a fallback for clients that do not implement MCP OAuth.
