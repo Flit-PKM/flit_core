@@ -332,6 +332,13 @@ class Settings(BaseSettings):
         default="dynamic",
         description="client_id sentinel for browser-first dynamic registration on /authorize",
     )
+    MCP_CORS_REFLECT_ORIGIN: bool = Field(
+        default=True,
+        description=(
+            "When MCP is enabled, reflect the request Origin on /mcp and MCP OAuth "
+            "well-known paths so browser MCP clients need not be listed in CORS_ORIGINS"
+        ),
+    )
 
     @field_validator("SECRET_KEY")
     @classmethod

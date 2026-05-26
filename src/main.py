@@ -43,6 +43,7 @@ from routes.billing import router as billing_router
 from flit_mcp.openapi import augment_mcp_openapi
 from openapi_augment import augment_core_openapi
 from flit_mcp.setup import register_mcp, register_mcp_openapi
+from middleware.cors import McpReflectOriginMiddleware
 from middleware.logging import RequestLoggingMiddleware, log_exceptions_middleware
 from logging_config import setup_logging
 from limiter import limiter
@@ -197,7 +198,7 @@ async def base_app_exception_handler(request: Request, exc: BaseAppException):
     )
 
 
-# CORS middleware
+# CORS: strict allowlist for /api and webapp; MCP routes reflect Origin (see middleware.cors).
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
@@ -205,6 +206,7 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
+app.add_middleware(McpReflectOriginMiddleware)
 
 app.add_middleware(SlowAPIMiddleware)
 # Add middleware

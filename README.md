@@ -132,6 +132,8 @@ curl -sS "$PUBLIC_URL/.well-known/oauth-authorization-server" | jq .
 
 API keys (`flit_mcp_…`) remain a fallback for clients that do not implement MCP OAuth.
 
+**CORS and browser MCP clients:** `CORS_ORIGINS` applies to the Flit web app and `/api` routes only. When `MCP_ENABLED=true`, `MCP_CORS_REFLECT_ORIGIN` (default `true`) echoes the request `Origin` on `/mcp`, `/mcp/oauth/*`, and MCP OAuth `/.well-known/*` paths so you do not list every MCP Inspector port or hosted client domain. Access to MCP data still requires a valid OAuth Bearer token or API key; CORS is not authorization. Native/desktop MCP hosts call the API directly and are not blocked by `CORS_ORIGINS`. Set `MCP_CORS_REFLECT_ORIGIN=false` only if you intentionally disable browser MCP support.
+
 ## Tests
 
 From project root (after `uv sync`). Tests use in-memory SQLite:
@@ -164,7 +166,8 @@ uv run pytest tests -v --cov=main --cov=auth --cov=database --cov=config --cov=e
 | **ENVIRONMENT** | No | `development` \| `production` \| `test` (default: `development`) |
 | **PUBLIC_BASE_URL** | When production | Canonical public URL (email links, MCP OAuth). Defaults in dev/test if unset. |
 | **LOG_LEVEL** | No | `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` |
-| **CORS_ORIGINS** | No | Comma-separated origins (default: `http://localhost:5173`) |
+| **CORS_ORIGINS** | No | Comma-separated origins for web app / `/api` (default: `http://localhost:5173`) |
+| **MCP_CORS_REFLECT_ORIGIN** | No | When MCP enabled (default `true`), reflect `Origin` on MCP routes for browser clients |
 | **ALLOWED_APPS_JSON** | No | JSON array of `{slug, name}` to override allowed apps |
 | **CONNECTION_CODE_EXPIRE_MINUTES** | No | TTL for connect codes (default: 10) |
 | **CONNECTION_CODE_LENGTH** | No | Code length (default: 8) |
