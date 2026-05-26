@@ -285,3 +285,40 @@ async def test_validate_mcp_token_accepts_canonical_aud(test_db_session, monkeyp
     monkeypatch.setattr(settings, "PUBLIC_BASE_URL", "http://testserver")
     result = await validate_mcp_access_token(test_db_session, token)
     assert result == (1, "read")
+
+
+@pytest.mark.asyncio
+async def test_validate_mcp_token_accepts_localhost_alias_aud(
+    test_db_session, monkeypatch
+):
+    from auth.jwt import create_access_token
+    from datetime import datetime, timedelta
+    from models.mcp_access_token import McpAccessToken
+    from service.mcp_oauth import MCP_TOKEN_TYPE, validate_mcp_access_token
+
+    monkeypatch.setattr(settings, "ENVIRONMENT", "test")
+    monkeypatch.setattr(settings, "PUBLIC_BASE_URL", "http://localhost:8000")
+
+    token_data = {
+        "sub": "1",
+        "scopes": "read",
+        "token_type": MCP_TOKEN_TYPE,
+        "jti": "jti-localhost-alias",
+        "aud": "http://127.0.0.1:8000/mcp",
+    }
+    token = create_access_token(token_data, expires_delta=timedelta(minutes=60))
+    row = McpAccessToken(
+        token=token,
+        user_id=1,
+        scopes="read",
+        jti="jti-localhost-alias",
+        expires_at=datetime.utcnow() + timedelta(minutes=60),
+        refresh_token_id=None,
+        revoked=False,
+        created_at=datetime.utcnow(),
+    )
+    test_db_session.add(row)
+    await test_db_session.flush()
+
+    result = await validate_mcp_access_token(test_db_session, token)
+    assert result == (1, "read")

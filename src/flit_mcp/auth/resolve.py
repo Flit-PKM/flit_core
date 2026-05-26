@@ -4,7 +4,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from flit_mcp.auth.context import McpAuthContext, McpAuthMethod
 from service.mcp_api_key import validate_mcp_api_key
-from service.mcp_oauth import MCP_API_KEY_PREFIX, validate_mcp_access_token
+from service.mcp_oauth import (
+    MCP_API_KEY_PREFIX,
+    peek_mcp_jwt_payload,
+    validate_mcp_access_token,
+)
 from service.oauth import validate_access_token
 from sqlalchemy import select
 from models.connected_app import ConnectedApp
@@ -39,6 +43,9 @@ async def resolve_mcp_auth(
             scopes_raw=scopes,
             auth_method="mcp_oauth",
         )
+
+    if peek_mcp_jwt_payload(token) is not None:
+        return None
 
     connected = await validate_access_token(session, token)
     if connected:

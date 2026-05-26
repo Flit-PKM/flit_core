@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from auth.jwt import create_access_token
 from config import settings
 from exceptions import AuthenticationError, ValidationError
+from logging_config import get_logger
 from flit_mcp.oauth.clients import McpOAuthClient
 from flit_mcp.scopes import normalize_requested_scope
 from models.mcp_access_token import McpAccessToken
@@ -25,6 +26,8 @@ from models.mcp_refresh_token import McpRefreshToken
 
 MCP_TOKEN_TYPE = "mcp"
 MCP_API_KEY_PREFIX = "flit_mcp_"
+
+logger = get_logger(__name__)
 
 
 def _utcnow() -> datetime:
@@ -81,17 +84,49 @@ def _normalize_resource_uri(resource: str) -> str:
     return f"{scheme}://{netloc}{path}"
 
 
+def _dev_localhost_aliases_match(a: str, b: str) -> bool:
+    """In dev/test, treat localhost and 127.0.0.1 as the same host for /mcp resource URIs."""
+    if settings.ENVIRONMENT not in ("development", "test"):
+        return False
+    pa, pb = urlparse(a.strip()), urlparse(b.strip())
+    if (pa.scheme or "").lower() != (pb.scheme or "").lower():
+        return False
+    ha, hb = (pa.hostname or "").lower(), (pb.hostname or "").lower()
+    if ha == hb:
+        return False
+    if {ha, hb} != {"127.0.0.1", "localhost"}:
+        return False
+
+    def _default_port(parsed) -> int:
+        if parsed.port is not None:
+            return parsed.port
+        return 443 if (parsed.scheme or "").lower() == "https" else 80
+
+    if _default_port(pa) != _default_port(pb):
+        return False
+
+    def _norm_path(parsed) -> str:
+        path = parsed.path or ""
+        if path != "/" and path.endswith("/"):
+            path = path.rstrip("/")
+        return path
+
+    return _norm_path(pa) == _norm_path(pb)
+
+
 def resolve_resource_param(resource: str | None) -> str:
     canonical = canonical_mcp_resource()
     if not resource or not str(resource).strip():
         return canonical
     normalized = _normalize_resource_uri(str(resource))
     canonical_norm = _normalize_resource_uri(canonical)
-    if normalized != canonical_norm:
-        raise ValidationError(
-            f"Invalid resource parameter; expected {canonical}"
-        )
-    return canonical
+    if normalized == canonical_norm or _dev_localhost_aliases_match(
+        str(resource), canonical
+    ):
+        return canonical
+    raise ValidationError(
+        f"Invalid resource parameter; expected {canonical}"
+    )
 
 
 def verify_pkce_challenge(
@@ -306,7 +341,7 @@ async def _issue_mcp_tokens(
     scopes: str,
     resource: str | None = None,
 ) -> tuple[McpAccessToken, McpRefreshToken]:
-    aud = resource or canonical_mcp_resource()
+    aud = canonical_mcp_resource()
     jti = secrets.token_urlsafe(16)
     expires_delta = timedelta(minutes=settings.MCP_ACCESS_TOKEN_EXPIRE_MINUTES)
     token_data = {
@@ -389,14 +424,57 @@ def _audience_matches(payload: dict, expected: str) -> bool:
     aud = payload.get("aud")
     if aud is None:
         return False
+
+    def _aud_value_matches(token_aud: str) -> bool:
+        if _normalize_resource_uri(token_aud) == _normalize_resource_uri(expected):
+            return True
+        return _dev_localhost_aliases_match(token_aud, expected)
+
     if isinstance(aud, str):
-        return _normalize_resource_uri(aud) == _normalize_resource_uri(expected)
+        return _aud_value_matches(aud)
     if isinstance(aud, list):
-        expected_norm = _normalize_resource_uri(expected)
-        return any(
-            _normalize_resource_uri(str(a)) == expected_norm for a in aud
-        )
+        return any(_aud_value_matches(str(a)) for a in aud)
     return False
+
+
+def peek_mcp_jwt_payload(token: str) -> dict | None:
+    """Decode JWT and return payload when token_type is mcp; else None."""
+    try:
+        payload = jose_jwt.decode(
+            token,
+            settings.SECRET_KEY,
+            algorithms=[settings.ALGORITHM],
+            options={"verify_aud": False},
+        )
+    except jose_jwt.JWTError:
+        return None
+    if payload.get("token_type") != MCP_TOKEN_TYPE:
+        return None
+    return payload
+
+
+async def _find_active_mcp_access_row(
+    session: AsyncSession,
+    *,
+    jti: str,
+    token: str,
+) -> McpAccessToken | None:
+    result = await session.execute(
+        select(McpAccessToken).where(
+            McpAccessToken.jti == jti,
+            McpAccessToken.revoked.is_(False),
+        )
+    )
+    row = result.scalar_one_or_none()
+    if row:
+        return row
+    result = await session.execute(
+        select(McpAccessToken).where(
+            McpAccessToken.token == token,
+            McpAccessToken.revoked.is_(False),
+        )
+    )
+    return result.scalar_one_or_none()
 
 
 async def validate_mcp_access_token(
@@ -411,29 +489,52 @@ async def validate_mcp_access_token(
             algorithms=[settings.ALGORITHM],
             options={"verify_aud": False},
         )
-    except jose_jwt.JWTError:
+    except jose_jwt.JWTError as e:
+        logger.debug("MCP token validation failed: JWT decode error: %s", e)
         return None
     if payload.get("token_type") != MCP_TOKEN_TYPE:
+        logger.debug(
+            "MCP token validation failed: invalid token_type=%r",
+            payload.get("token_type"),
+        )
         return None
     if not _audience_matches(payload, expected_aud):
+        logger.debug(
+            "MCP token validation failed: audience mismatch aud=%r expected=%r",
+            payload.get("aud"),
+            expected_aud,
+        )
         return None
     jti = payload.get("jti")
     sub = payload.get("sub")
     scopes = payload.get("scopes")
     if not jti or not sub or not scopes:
+        logger.debug(
+            "MCP token validation failed: missing claims jti=%r sub=%r scopes=%r",
+            jti,
+            sub,
+            scopes,
+        )
         return None
 
-    result = await session.execute(
-        select(McpAccessToken).where(
-            McpAccessToken.jti == jti,
-            McpAccessToken.revoked.is_(False),
-        )
-    )
-    row = result.scalar_one_or_none()
+    row = await _find_active_mcp_access_row(session, jti=str(jti), token=token)
     if not row:
+        logger.debug(
+            "MCP token validation failed: no active DB row for jti=%r",
+            jti,
+        )
         return None
     if _as_utc_aware(row.expires_at) < _utcnow():
+        logger.debug(
+            "MCP token validation failed: expired at %s",
+            row.expires_at,
+        )
         return None
     if str(row.user_id) != str(sub):
+        logger.debug(
+            "MCP token validation failed: user_id mismatch row=%r sub=%r",
+            row.user_id,
+            sub,
+        )
         return None
     return row.user_id, row.scopes

@@ -4,17 +4,20 @@ from __future__ import annotations
 
 from typing import Any
 
+from sqlalchemy import select
+
 from flit_mcp.auth.context import McpAuthContext
 from flit_mcp.auth.contextvar import get_current_mcp_auth
 from flit_mcp.auth.dependencies import require_mcp_write
 from flit_mcp.db import mcp_db_session
 from flit_mcp.router_setup import flit_mcp_router
-from models.note import NoteType
+from flit_mcp.serialize import dump_model, dump_models
+from models.note import Note, NoteType
 from models.relationship import RelationshipType
-from schemas.category import CategoryCreate, CategoryUpdate
-from schemas.note import NoteCreate, NoteCreateRequest, NoteUpdate
-from schemas.note_category import NoteCategoryCreate
-from schemas.relationship import RelationshipCreate
+from schemas.category import CategoryCreate, CategoryRead, CategoryUpdate
+from schemas.note import NoteCreate, NoteCreateRequest, NoteDetailRead, NoteRead, NoteUpdate
+from schemas.note_category import NoteCategoryCreate, NoteCategoryRead
+from schemas.relationship import RelationshipCreate, RelationshipRead
 from service.access_code import get_active_access_grant
 from service.billing import SUBSCRIPTION_STATUS_ACTIVE, get_subscription_for_user
 from service.category import (
@@ -42,14 +45,58 @@ from service.relationship import (
     list_relationships_for_note,
 )
 from service.user import get_user
-
-
-def _row(obj: Any) -> dict[str, Any]:
-    return {c.key: getattr(obj, c.key) for c in obj.__table__.columns}
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
 def _write_guard(ctx: McpAuthContext) -> None:
     require_mcp_write(ctx)
+
+
+async def _build_note_detail_read(
+    db: AsyncSession,
+    note_id: int,
+    user_id: int,
+    note: Note,
+) -> NoteDetailRead:
+    """Match REST GET /notes/{id} — categories and owned peer relationships."""
+    categories_raw = await list_categories_for_note(db, note_id)
+    categories = [
+        CategoryRead.model_validate(c)
+        for c in categories_raw
+        if c.user_id == user_id
+    ]
+
+    relationships_raw = await list_relationships_for_note(
+        db, note_id, skip=0, limit=1000
+    )
+    other_note_ids = {
+        rel.note_b_id if rel.note_a_id == note_id else rel.note_a_id
+        for rel in relationships_raw
+    }
+    if other_note_ids:
+        result = await db.execute(
+            select(Note.id).where(
+                Note.id.in_(other_note_ids),
+                Note.user_id == user_id,
+            )
+        )
+        user_other_note_ids = {row[0] for row in result.all()}
+    else:
+        user_other_note_ids = set()
+
+    filtered_rels = [
+        rel
+        for rel in relationships_raw
+        if (rel.note_b_id if rel.note_a_id == note_id else rel.note_a_id)
+        in user_other_note_ids
+    ]
+    relationships = [RelationshipRead.model_validate(r) for r in filtered_rels]
+
+    return NoteDetailRead(
+        **NoteRead.model_validate(note).model_dump(),
+        categories=categories,
+        relationships=relationships,
+    )
 
 
 @flit_mcp_router.tool()
@@ -74,12 +121,15 @@ async def list_notes(
             category_name=category_name.strip() if category_name else None,
             search=search.strip() if search else None,
         )
-        return [_row(n) for n in notes]
+        return dump_models([NoteRead.model_validate(n) for n in notes])
 
 
 @flit_mcp_router.tool()
 async def get_note(note_id: int) -> dict[str, Any]:
-    """Get one note by id including title and content. Requires read scope. Only your notes."""
+    """Get one note by id including title, content, categories, and relationships.
+
+    Requires read scope. Only your notes.
+    """
     ctx = get_current_mcp_auth()
     async with mcp_db_session() as db:
         note = await get_note_svc(db, note_id)
@@ -87,11 +137,8 @@ async def get_note(note_id: int) -> dict[str, Any]:
             from exceptions import NotFoundError
 
             raise NotFoundError("Note not found")
-        cats = await list_categories_for_note(db, note_id)
-        return {
-            **_row(note),
-            "categories": [_row(c) for c in cats if c.user_id == ctx.user_id],
-        }
+        detail = await _build_note_detail_read(db, note_id, ctx.user_id, note)
+        return dump_model(detail)
 
 
 @flit_mcp_router.tool()
@@ -116,7 +163,7 @@ async def create_note(
     async with mcp_db_session() as db:
         note_create = NoteCreate(**body.model_dump(), user_id=ctx.user_id)
         note = await create_note_svc(db, note_create)
-        return _row(note)
+        return dump_model(NoteRead.model_validate(note))
 
 
 @flit_mcp_router.tool()
@@ -146,7 +193,7 @@ async def update_note(
         if color is not None:
             payload["color"] = color
         updated = await update_note_svc(db, note_id, NoteUpdate(**payload))
-        return _row(updated)
+        return dump_model(NoteRead.model_validate(updated))
 
 
 @flit_mcp_router.tool()
@@ -169,7 +216,7 @@ async def list_categories(
     limit = min(max(limit, 1), 1000)
     async with mcp_db_session() as db:
         cats = await get_all_categories(db, ctx.user_id, skip=skip, limit=limit)
-        return [_row(c) for c in cats]
+        return dump_models([CategoryRead.model_validate(c) for c in cats])
 
 
 @flit_mcp_router.tool()
@@ -178,7 +225,7 @@ async def get_category(category_id: int) -> dict[str, Any]:
     ctx = get_current_mcp_auth()
     async with mcp_db_session() as db:
         cat = await get_category_or_404(db, category_id, ctx.user_id)
-        return _row(cat)
+        return dump_model(CategoryRead.model_validate(cat))
 
 
 @flit_mcp_router.tool()
@@ -188,7 +235,7 @@ async def create_category(name: str) -> dict[str, Any]:
     _write_guard(ctx)
     async with mcp_db_session() as db:
         cat = await create_category_svc(db, CategoryCreate(name=name), ctx.user_id)
-        return _row(cat)
+        return dump_model(CategoryRead.model_validate(cat))
 
 
 @flit_mcp_router.tool()
@@ -200,7 +247,7 @@ async def update_category(category_id: int, name: str) -> dict[str, Any]:
         cat = await update_category_svc(
             db, category_id, CategoryUpdate(name=name), ctx.user_id
         )
-        return _row(cat)
+        return dump_model(CategoryRead.model_validate(cat))
 
 
 @flit_mcp_router.tool()
@@ -228,7 +275,7 @@ async def list_relationships(
 
             raise NotFoundError("Note not found")
         rels = await list_relationships_for_note(db, note_id, skip=skip, limit=limit)
-        return [_row(r) for r in rels]
+        return dump_models([RelationshipRead.model_validate(r) for r in rels])
 
 
 @flit_mcp_router.tool()
@@ -260,7 +307,7 @@ async def create_relationship(
                 type=rel_type,
             ),
         )
-        return _row(rel)
+        return dump_model(RelationshipRead.model_validate(rel))
 
 
 @flit_mcp_router.tool()
@@ -290,7 +337,8 @@ async def list_note_categories(note_id: int) -> list[dict[str, Any]]:
 
             raise NotFoundError("Note not found")
         cats = await list_categories_for_note(db, note_id)
-        return [_row(c) for c in cats if c.user_id == ctx.user_id]
+        owned = [c for c in cats if c.user_id == ctx.user_id]
+        return dump_models([CategoryRead.model_validate(c) for c in owned])
 
 
 @flit_mcp_router.tool()
@@ -308,7 +356,7 @@ async def link_note_to_category(note_id: int, category_id: int) -> dict[str, Any
         link = await link_note_category(
             db, NoteCategoryCreate(note_id=note_id, category_id=category_id)
         )
-        return _row(link)
+        return dump_model(NoteCategoryRead.model_validate(link))
 
 
 @flit_mcp_router.tool()

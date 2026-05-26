@@ -5,6 +5,9 @@ import json
 from flit_mcp.auth.contextvar import get_current_mcp_auth
 from flit_mcp.db import mcp_db_session
 from flit_mcp.router_setup import flit_mcp_router
+from flit_mcp.serialize import dump_model
+from schemas.category import CategoryRead
+from schemas.note import NoteRead
 from service.access_code import get_active_access_grant
 from service.billing import SUBSCRIPTION_STATUS_ACTIVE, get_subscription_for_user
 from service.category import get_category_or_404
@@ -34,7 +37,7 @@ async def resource_user_profile() -> str:
                 grant or (sub and sub.status == SUBSCRIPTION_STATUS_ACTIVE)
             ),
         }
-        return json.dumps(payload, default=str)
+        return json.dumps(payload)
 
 
 @flit_mcp_router.resource("flit://note/{note_id}")
@@ -47,8 +50,7 @@ async def resource_note(note_id: int) -> str:
             from exceptions import NotFoundError
 
             raise NotFoundError("Note not found")
-        data = {c.key: getattr(note, c.key) for c in note.__table__.columns}
-        return json.dumps(data, default=str)
+        return json.dumps(dump_model(NoteRead.model_validate(note)))
 
 
 @flit_mcp_router.resource("flit://category/{category_id}")
@@ -57,5 +59,4 @@ async def resource_category(category_id: int) -> str:
     ctx = get_current_mcp_auth()
     async with mcp_db_session() as db:
         cat = await get_category_or_404(db, category_id, ctx.user_id)
-        data = {c.key: getattr(cat, c.key) for c in cat.__table__.columns}
-        return json.dumps(data, default=str)
+        return json.dumps(dump_model(CategoryRead.model_validate(cat)))

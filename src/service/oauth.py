@@ -194,7 +194,12 @@ async def validate_access_token(
     from jose import jwt
 
     try:
-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        payload = jwt.decode(
+            token,
+            settings.SECRET_KEY,
+            algorithms=[settings.ALGORITHM],
+            options={"verify_aud": False},
+        )
         connected_app_id = payload.get("connected_app_id")
         user_id = int(payload.get("sub"))
 

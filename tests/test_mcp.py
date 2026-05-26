@@ -111,11 +111,25 @@ async def test_mcp_list_notes_with_api_key(
     )
     await test_db_session.commit()
 
+    create_data = _tools_call(
+        test_client,
+        plaintext,
+        "create_note",
+        {"title": "MCP test note", "content": "Body for serialization test"},
+    )
+    assert "result" in create_data
+
     data = _tools_call(test_client, plaintext, "list_notes", {"limit": 10})
     assert "result" in data
     text = data["result"]["content"][0]["text"]
     notes = json.loads(text)
     assert isinstance(notes, list)
+    assert len(notes) >= 1
+    note = notes[0]
+    assert note["title"] == "MCP test note"
+    assert isinstance(note["created_at"], str)
+    assert isinstance(note["updated_at"], str)
+    assert "T" in note["created_at"]
 
 
 @pytest.mark.asyncio
@@ -235,6 +249,78 @@ async def test_oauth_pkce_token_exchange(
     body = token_resp.json()
     assert "access_token" in body
     assert body["scope"] == "read"
+
+
+@pytest.mark.asyncio
+async def test_oauth_token_authenticates_mcp_post(
+    mcp_enabled, test_client, test_db_session, sample_user_data
+):
+    """PKCE-issued MCP OAuth access token must authenticate POST /mcp."""
+    user_data = sample_user_data.copy()
+    user_data["password_hash"] = get_password_hash(user_data.pop("password"))
+    user = await create_user(test_db_session, user_data)
+    await test_db_session.commit()
+
+    import base64
+    import hashlib
+    import secrets
+
+    from service.mcp_oauth import (
+        create_pending_authorization,
+        issue_authorization_code,
+        set_pending_user,
+    )
+
+    verifier = secrets.token_urlsafe(32)
+    digest = hashlib.sha256(verifier.encode()).digest()
+    challenge = base64.urlsafe_b64encode(digest).rstrip(b"=").decode()
+
+    pending = await create_pending_authorization(
+        test_db_session,
+        state="mcp-post-state",
+        client_id="mcp-dev",
+        redirect_uri="http://127.0.0.1:8080/oauth/callback",
+        resource="http://testserver/mcp",
+        scope="read",
+        code_challenge=challenge,
+        code_challenge_method="S256",
+    )
+    await set_pending_user(test_db_session, pending, user.id)
+    code = await issue_authorization_code(test_db_session, pending)
+    await test_db_session.commit()
+
+    token_resp = test_client.post(
+        "/mcp/oauth/token",
+        data={
+            "grant_type": "authorization_code",
+            "code": code,
+            "redirect_uri": "http://127.0.0.1:8080/oauth/callback",
+            "client_id": "mcp-dev",
+            "code_verifier": verifier,
+            "resource": "http://testserver/mcp",
+        },
+    )
+    assert token_resp.status_code == 200
+    access_token = token_resp.json()["access_token"]
+
+    init_resp = test_client.post(
+        "/mcp",
+        headers=_mcp_headers(access_token),
+        json={
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2025-06-18",
+                "capabilities": {},
+                "clientInfo": {"name": "test", "version": "1"},
+            },
+        },
+    )
+    assert init_resp.status_code == 200
+    data = init_resp.json()
+    assert "result" in data
+    assert data["result"]["serverInfo"]["name"] == "Flit Core MCP"
 
 
 def test_openapi_includes_mcp_catalog_by_default(test_client):
