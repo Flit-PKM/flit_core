@@ -1,0 +1,1 @@
+import{w as o}from"./BzhMabVC.js";let n=null;const t=o(!1),i=o("");function l(s){return n&&n(!1),new Promise(e=>{n=e,i.set(s),t.set(!0)})}function r(s){t.set(!1),i.set("");const e=n;n=null,e==null||e(s)}export{t as a,i as b,l as c,r};

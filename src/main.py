@@ -40,6 +40,7 @@ from routes.feedback import router as feedback_router
 from routes.verify import router as verify_router
 from routes.password_reset import router as password_reset_router
 from routes.billing import router as billing_router
+from routes.vault_markdown import router as vault_markdown_router
 from flit_mcp.openapi import augment_mcp_openapi
 from openapi_augment import augment_core_openapi
 from flit_mcp.setup import register_mcp, register_mcp_openapi
@@ -232,6 +233,7 @@ app.include_router(feedback_router, prefix="/api")
 app.include_router(verify_router, prefix="/api")
 app.include_router(password_reset_router, prefix="/api")
 app.include_router(billing_router, prefix="/api")
+app.include_router(vault_markdown_router, prefix="/api")
 
 # MCP service (protocol, OAuth, API keys) — sibling to /api, not under it
 register_mcp_openapi(app)

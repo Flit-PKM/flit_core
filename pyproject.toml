@@ -30,6 +30,7 @@ dependencies = [
     "google-auth >=2.35.0",
     "requests >=2.32.0",
     "fastapi-mcp-router>=0.3.1",
+    "pyyaml>=6.0.0",
 ]
 
 [build-system]
