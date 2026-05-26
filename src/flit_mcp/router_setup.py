@@ -11,6 +11,7 @@ from flit_mcp.auth.contextvar import mcp_auth_ctx_var
 from flit_mcp.auth.resolve import resolve_mcp_auth
 from flit_mcp.oauth.metadata import oauth_protected_resource_metadata
 from flit_mcp.rate_limit import check_mcp_rate_limit
+from flit_mcp.tool_access import mcp_tool_filter
 from service.mcp_oauth import mcp_issuer
 
 logger = logging.getLogger(__name__)
@@ -58,6 +59,7 @@ def _issuer_base_url() -> str | None:
 
 flit_mcp_router = MCPRouter(
     auth_validator=_mcp_auth_validator,
+    tool_filter=mcp_tool_filter,
     base_url=_issuer_base_url(),
     oauth_resource_metadata=oauth_protected_resource_metadata()
     if settings.MCP_ENABLED and _issuer_base_url()

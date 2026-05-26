@@ -1,0 +1,7 @@
+# MCP OAuth static assets
+
+`flit_logo.svg` is copied from `webapp_build/images/flit_app_logo.svg`.
+Re-copy that file when the webapp logo changes.
+
+`google_logo.svg` is the standard multicolor Google "G" mark for the Sign in with Google button.
+Replace only if Google updates brand assets.

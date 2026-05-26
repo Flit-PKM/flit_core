@@ -32,3 +32,16 @@ def parse_scopes(scopes: str) -> set[str]:
 
 def scopes_allow_write(scopes: set[str]) -> bool:
     return WRITE_SCOPE in scopes
+
+
+def scope_display_label(scope: str) -> str:
+    """Human-readable label for OAuth consent UI."""
+    if normalize_requested_scope(scope) == READ_WRITE_SCOPE:
+        return "Read and write"
+    return "Read only"
+
+
+def scope_display_description(scope: str) -> str:
+    if normalize_requested_scope(scope) == READ_WRITE_SCOPE:
+        return "Create, update, and delete notes, categories, and relationships"
+    return "List and read notes, categories, and relationships"

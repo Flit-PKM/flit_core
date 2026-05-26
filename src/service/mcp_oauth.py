@@ -236,6 +236,15 @@ async def set_pending_user(
     await session.flush()
 
 
+async def set_pending_scopes(
+    session: AsyncSession,
+    pending: McpOAuthPendingAuthorization,
+    scopes: str,
+) -> None:
+    pending.scopes = normalize_requested_scope(scopes)
+    await session.flush()
+
+
 async def issue_authorization_code(
     session: AsyncSession,
     pending: McpOAuthPendingAuthorization,

@@ -110,8 +110,12 @@ flit_core/
 When `MCP_ENABLED=true`, MCP OAuth uses the same public URL as the rest of the API (`PUBLIC_BASE_URL`, or `http://127.0.0.1:8000` in development when unset):
 
 1. Clients discover auth via `401` on `POST /mcp` (and `GET /mcp` for browser popups) and `/.well-known/oauth-protected-resource`.
-2. Clients open `GET /mcp/oauth/authorize` (PKCE + `resource={public_url}/mcp`) for the Flit login and consent UI — **not** bare `GET /mcp` (that endpoint returns 401 or MCP metadata, not the login page).
+2. Clients open `GET /mcp/oauth/authorize` (PKCE + `resource={public_url}/mcp`) for the Flit login and consent UI — **not** bare `GET /mcp` (that endpoint returns 401 or MCP metadata, not the login page). On the consent screen, users choose **read-only** or **read-write** access (the client’s `scope` query param only sets the default).
 3. Clients exchange the code at `POST /mcp/oauth/token` and call `POST /mcp` with the Bearer token.
+
+The OAuth login/consent pages use self-contained HTML/CSS under `src/flit_mcp/oauth/`. The Flit logo is vendored at `src/flit_mcp/oauth/static/flit_logo.svg` (copy from `webapp_build/images/flit_app_logo.svg` when the webapp logo changes).
+
+Read-only tokens (`scope=read`) only expose read tools in MCP `tools/list`; write tools remain blocked on `tools/call` as well.
 
 If a connector shows a **blank popup** and “authenticated” without a Flit login screen, check server logs: you should see `GET /mcp/oauth/authorize`. If you only see `GET /mcp` with **200** and HTML, the request was hitting the SPA before `legacy_sse` was enabled on the MCP router. After a correct connect, `POST /mcp` with a valid token should return tools via `tools/list`; an empty tool list means MCP Bearer auth never succeeded.
 

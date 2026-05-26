@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import secrets
+from pathlib import Path
 from typing import Optional
-from urllib.parse import urlencode, urlparse
+from urllib.parse import urlencode
 
 import httpx
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, status
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import settings
@@ -22,6 +22,7 @@ from flit_mcp.oauth.dcr import (
     user_has_mcp_entitlement,
     validate_registration_request,
 )
+from flit_mcp.oauth.html import consent_html, login_html
 from flit_mcp.oauth.metadata import (
     oauth_authorization_server_metadata,
     oauth_protected_resource_metadata,
@@ -32,7 +33,6 @@ from routes.auth import authenticate_user
 from service.mcp_oauth import (
     build_redirect_with_code,
     build_redirect_with_error,
-    canonical_mcp_resource,
     create_pending_authorization,
     exchange_authorization_code,
     get_pending_by_state,
@@ -43,6 +43,7 @@ from service.mcp_oauth import (
     redirect_uri_is_valid_scheme,
     refresh_mcp_access_token,
     resolve_resource_param,
+    set_pending_scopes,
     set_pending_user,
 )
 from service.user import create_user, get_user_by_email, touch_last_login
@@ -62,6 +63,10 @@ MCP_ENTITLEMENT_ERROR = (
     "An active subscription is required to connect MCP clients."
 )
 
+_STATIC_DIR = Path(__file__).resolve().parent / "static"
+_FLIT_LOGO_PATH = _STATIC_DIR / "flit_logo.svg"
+_GOOGLE_LOGO_PATH = _STATIC_DIR / "google_logo.svg"
+
 
 async def _client_for_pending(
     db: AsyncSession,
@@ -75,101 +80,11 @@ async def _client_for_pending(
     return client
 
 
-def _redirect_is_localhost(redirect_uri: str) -> bool:
-    host = (urlparse(redirect_uri).hostname or "").lower()
-    return host in ("127.0.0.1", "localhost")
-
-
-def _localhost_warning(redirect_uri: str) -> str:
-    if not _redirect_is_localhost(redirect_uri):
-        return ""
-    return (
-        '<p class="warn"><strong>Note:</strong> This app uses a localhost redirect. '
-        "Only continue if you trust the application on your device.</p>"
+def _google_enabled() -> bool:
+    return bool(
+        settings.MCP_GOOGLE_OAUTH_CLIENT_ID
+        and settings.MCP_GOOGLE_OAUTH_CLIENT_SECRET
     )
-
-
-def _logo_block(logo_uri: str | None) -> str:
-    if not logo_uri:
-        return ""
-    return f'<p><img src="{logo_uri}" alt="" style="max-height:48px" /></p>'
-
-
-def _login_html(
-    *,
-    state: str,
-    client_name: str,
-    scope: str,
-    resource_label: str,
-    redirect_uri: str,
-    logo_uri: str | None = None,
-    error: str | None = None,
-    google_enabled: bool,
-) -> str:
-    err = f'<p class="error">{error}</p>' if error else ""
-    google_block = ""
-    if google_enabled:
-        google_url = f"/mcp/oauth/google/start?state={state}"
-        google_block = f'<a class="btn secondary" href="{google_url}">Sign in with Google</a>'
-    register_url = public_base_url()
-    return f"""<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>Flit MCP — Sign in</title>
-<style>
-body {{ font-family: system-ui, sans-serif; max-width: 420px; margin: 2rem auto; }}
-.error {{ color: #b91c1c; }}
-.warn {{ color: #92400e; background: #fef3c7; padding: 0.75rem; border-radius: 6px; }}
-.btn {{ display: block; width: 100%; padding: 0.6rem; margin-top: 0.5rem; text-align: center;
-  background: #2563eb; color: white; text-decoration: none; border: none; border-radius: 6px; }}
-.btn.secondary {{ background: #fff; color: #333; border: 1px solid #ccc; }}
-label {{ display: block; margin-top: 0.75rem; }}
-input {{ width: 100%; padding: 0.5rem; box-sizing: border-box; }}
-</style></head>
-<body>
-<h1>Connect to Flit</h1>
-{_logo_block(logo_uri)}
-<p>Application <strong>{client_name}</strong> requests <code>{scope}</code> access to your Flit PKM data at <code>{resource_label}</code>.</p>
-{_localhost_warning(redirect_uri)}
-{err}
-<form method="post" action="/mcp/oauth/login">
-  <input type="hidden" name="state" value="{state}" />
-  <label>Email <input type="email" name="email" required autocomplete="email" /></label>
-  <label>Password <input type="password" name="password" required autocomplete="current-password" /></label>
-  <button class="btn" type="submit">Sign in with email</button>
-</form>
-{google_block}
-<p><small>No account? <a href="{register_url}">Register on Flit</a></small></p>
-</body></html>"""
-
-
-def _consent_html(
-    *,
-    state: str,
-    client_name: str,
-    scope: str,
-    resource_label: str,
-    redirect_uri: str,
-    logo_uri: str | None = None,
-) -> str:
-    return f"""<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>Flit MCP — Authorize</title>
-<style>
-body {{ font-family: system-ui, sans-serif; max-width: 420px; margin: 2rem auto; }}
-.warn {{ color: #92400e; background: #fef3c7; padding: 0.75rem; border-radius: 6px; }}
-.btn {{ padding: 0.6rem 1.2rem; border-radius: 6px; border: none; cursor: pointer; }}
-.allow {{ background: #2563eb; color: white; }}
-.deny {{ background: #e5e7eb; margin-left: 0.5rem; }}
-</style></head>
-<body>
-<h1>Authorize access</h1>
-{_logo_block(logo_uri)}
-<p><strong>{client_name}</strong> wants <code>{scope}</code> access to your Flit PKM data at <code>{resource_label}</code>.</p>
-{_localhost_warning(redirect_uri)}
-<form method="post" action="/mcp/oauth/consent" style="margin-top:1.5rem">
-  <input type="hidden" name="state" value="{state}" />
-  <button class="btn allow" name="action" value="allow" type="submit">Allow</button>
-  <button class="btn deny" name="action" value="deny" type="submit">Deny</button>
-</form>
-</body></html>"""
 
 
 def _html_for_pending(
@@ -179,35 +94,51 @@ def _html_for_pending(
     error: str | None = None,
     google_enabled: bool | None = None,
 ) -> HTMLResponse:
-    resource_label = pending.resource or canonical_mcp_resource()
     if pending.user_id:
-        html = _consent_html(
+        html = consent_html(
             state=pending.state,
             client_name=client.name,
-            scope=pending.scopes,
-            resource_label=resource_label,
+            selected_scope=pending.scopes,
             redirect_uri=pending.redirect_uri,
             logo_uri=client.logo_uri,
         )
     else:
-        html = _login_html(
+        html = login_html(
             state=pending.state,
             client_name=client.name,
-            scope=pending.scopes,
-            resource_label=resource_label,
             redirect_uri=pending.redirect_uri,
             logo_uri=client.logo_uri,
             error=error,
             google_enabled=google_enabled
             if google_enabled is not None
-            else bool(
-                settings.MCP_GOOGLE_OAUTH_CLIENT_ID
-                and settings.MCP_GOOGLE_OAUTH_CLIENT_SECRET
-            ),
+            else _google_enabled(),
+            register_url=public_base_url(),
         )
     resp = HTMLResponse(html)
     resp.set_cookie(MCP_SESSION_COOKIE, pending.state, httponly=True, samesite="lax", max_age=600)
     return resp
+
+
+@router.get("/static/flit_logo.svg")
+async def flit_logo_static():
+    if not _FLIT_LOGO_PATH.is_file():
+        raise HTTPException(status_code=404, detail="Logo not found")
+    return FileResponse(
+        _FLIT_LOGO_PATH,
+        media_type="image/svg+xml",
+        filename="flit_logo.svg",
+    )
+
+
+@router.get("/static/google_logo.svg")
+async def google_logo_static():
+    if not _GOOGLE_LOGO_PATH.is_file():
+        raise HTTPException(status_code=404, detail="Logo not found")
+    return FileResponse(
+        _GOOGLE_LOGO_PATH,
+        media_type="image/svg+xml",
+        filename="google_logo.svg",
+    )
 
 
 @router.get("/authorize")
@@ -315,10 +246,7 @@ async def oauth_login(
             pending,
             client,
             error="Incorrect email or password.",
-            google_enabled=bool(
-                settings.MCP_GOOGLE_OAUTH_CLIENT_ID
-                and settings.MCP_GOOGLE_OAUTH_CLIENT_SECRET
-            ),
+            google_enabled=_google_enabled(),
         )
         resp.status_code = status.HTTP_401_UNAUTHORIZED
         return resp
@@ -332,10 +260,7 @@ async def oauth_login(
             pending,
             client,
             error=MCP_ENTITLEMENT_ERROR,
-            google_enabled=bool(
-                settings.MCP_GOOGLE_OAUTH_CLIENT_ID
-                and settings.MCP_GOOGLE_OAUTH_CLIENT_SECRET
-            ),
+            google_enabled=_google_enabled(),
         )
 
     await set_pending_user(db, pending, user.id)
@@ -348,6 +273,7 @@ async def oauth_consent(
     request: Request,
     state: str = Form(...),
     action: str = Form(...),
+    scope: str | None = Form(None),
     db: AsyncSession = Depends(get_async_session),
 ):
     """Browser form POST: approve or deny MCP OAuth scopes (HTML flow, not for API clients)."""
@@ -365,6 +291,14 @@ async def oauth_consent(
 
     if pending.user_id is None:
         raise HTTPException(status_code=401, detail="Not authenticated")
+
+    if action != "allow":
+        raise HTTPException(status_code=400, detail="Invalid action")
+
+    if scope is None or not str(scope).strip():
+        raise HTTPException(status_code=400, detail="scope is required")
+
+    await set_pending_scopes(db, pending, str(scope))
 
     include_client_id = pending.dynamic_registration
     if pending.dynamic_registration:
@@ -469,10 +403,7 @@ async def google_callback(
             pending,
             client,
             error=MCP_ENTITLEMENT_ERROR,
-            google_enabled=bool(
-                settings.MCP_GOOGLE_OAUTH_CLIENT_ID
-                and settings.MCP_GOOGLE_OAUTH_CLIENT_SECRET
-            ),
+            google_enabled=_google_enabled(),
         )
 
     await set_pending_user(db, pending, user.id)

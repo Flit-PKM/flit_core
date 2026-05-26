@@ -145,18 +145,16 @@ async def get_note(note_id: int) -> dict[str, Any]:
 async def create_note(
     title: str,
     content: str,
-    type: str = "BASE",
     pinned: bool = False,
     color: str = "",
 ) -> dict[str, Any]:
-    """Create a new note. Requires read write scope."""
+    """Create a new note. Requires read write scope. Notes are always created as BASE type."""
     ctx = get_current_mcp_auth()
     _write_guard(ctx)
-    note_type = NoteType(type) if type in NoteType.__members__ else NoteType.BASE
     body = NoteCreateRequest(
         title=title,
         content=content,
-        type=note_type,
+        type=NoteType.BASE,
         pinned=pinned,
         color=color,
     )

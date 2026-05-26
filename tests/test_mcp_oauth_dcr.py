@@ -112,6 +112,20 @@ def test_post_register_disabled(monkeypatch, mcp_dcr_env, test_client):
     assert resp.status_code == 404
 
 
+def test_flit_logo_static(mcp_dcr_env, test_client):
+    resp = test_client.get("/mcp/oauth/static/flit_logo.svg")
+    assert resp.status_code == 200
+    assert "image/svg" in resp.headers.get("content-type", "")
+    assert b"<svg" in resp.content
+
+
+def test_google_logo_static(mcp_dcr_env, test_client):
+    resp = test_client.get("/mcp/oauth/static/google_logo.svg")
+    assert resp.status_code == 200
+    assert "image/svg" in resp.headers.get("content-type", "")
+    assert b"<svg" in resp.content
+
+
 def test_dynamic_authorize_requires_client_name(mcp_dcr_env, test_client):
     verifier, challenge = _pkce_pair()
     resp = test_client.get(
@@ -181,6 +195,9 @@ async def test_browser_connect_and_token_exchange(
         )
         assert auth_resp.status_code == 200
         assert client_name in auth_resp.text
+        assert "/mcp/oauth/static/flit_logo.svg" in auth_resp.text
+        # Google button markup present when Google OAuth env is configured in tests
+        assert "mcp-oauth-btn-google" in auth_resp.text or "Sign in with email" in auth_resp.text
 
         login_resp = test_client.post(
             "/mcp/oauth/login",
@@ -192,10 +209,13 @@ async def test_browser_connect_and_token_exchange(
         )
         assert login_resp.status_code == 200
         assert "Authorize access" in login_resp.text
+        assert 'name="scope"' in login_resp.text
+        assert "Read only" in login_resp.text
+        assert "Read and write" in login_resp.text
 
         consent_resp = test_client.post(
             "/mcp/oauth/consent",
-            data={"state": state, "action": "allow"},
+            data={"state": state, "action": "allow", "scope": "read"},
             follow_redirects=False,
         )
         assert consent_resp.status_code == 302
@@ -219,11 +239,179 @@ async def test_browser_connect_and_token_exchange(
             },
         )
         assert token_resp.status_code == 200
-        assert "access_token" in token_resp.json()
+        token_body = token_resp.json()
+        assert "access_token" in token_body
+        assert token_body.get("scope") == "read"
 
         loaded = await load_registered_oauth_client(test_db_session, registered_client_id)
         assert loaded is not None
         assert loaded.name == client_name
+    finally:
+        monkeypatch_billing.undo()
+
+
+@pytest.mark.asyncio
+async def test_consent_scope_upgrade_to_read_write(
+    mcp_dcr_env,
+    test_client,
+    test_db_session,
+    sample_user_data,
+):
+    from auth.password import get_password_hash
+    from service.user import create_user
+
+    user_data = sample_user_data.copy()
+    user_data["password_hash"] = get_password_hash(user_data.pop("password"))
+    user = await create_user(test_db_session, user_data)
+    from datetime import datetime, timedelta, timezone
+
+    sub = PlanSubscription(
+        user_id=user.id,
+        dodo_subscription_id="sub_rw",
+        dodo_customer_id="cus_rw",
+        status=SUBSCRIPTION_STATUS_ACTIVE,
+        product_id="prod_rw",
+        current_period_end=datetime.now(timezone.utc) + timedelta(days=30),
+    )
+    test_db_session.add(sub)
+    await test_db_session.flush()
+
+    monkeypatch_billing = pytest.MonkeyPatch()
+    monkeypatch_billing.setattr(
+        "flit_mcp.oauth.dcr.is_billing_configured",
+        lambda: True,
+    )
+    try:
+        verifier, challenge = _pkce_pair()
+        state = "scope-upgrade-state"
+
+        test_client.get(
+            "/mcp/oauth/authorize",
+            params={
+                "client_id": "dynamic",
+                "client_name": "Scope Upgrade App",
+                "redirect_uri": "http://127.0.0.1:7777/callback",
+                "response_type": "code",
+                "state": state,
+                "code_challenge": challenge,
+                "code_challenge_method": "S256",
+                "resource": "http://testserver/mcp",
+                "scope": "read",
+            },
+        )
+        test_client.post(
+            "/mcp/oauth/login",
+            data={
+                "state": state,
+                "email": sample_user_data["email"],
+                "password": "testpassword123",
+            },
+        )
+        consent_resp = test_client.post(
+            "/mcp/oauth/consent",
+            data={"state": state, "action": "allow", "scope": "read write"},
+            follow_redirects=False,
+        )
+        assert consent_resp.status_code == 302
+        qs = parse_qs(urlparse(consent_resp.headers["location"]).query)
+        registered_client_id = qs["client_id"][0]
+
+        token_resp = test_client.post(
+            "/mcp/oauth/token",
+            data={
+                "grant_type": "authorization_code",
+                "code": qs["code"][0],
+                "redirect_uri": "http://127.0.0.1:7777/callback",
+                "client_id": registered_client_id,
+                "code_verifier": verifier,
+                "resource": "http://testserver/mcp",
+            },
+        )
+        assert token_resp.status_code == 200
+        assert token_resp.json().get("scope") == "read write"
+    finally:
+        monkeypatch_billing.undo()
+
+
+@pytest.mark.asyncio
+async def test_consent_scope_downgrade_to_read(
+    mcp_dcr_env,
+    test_client,
+    test_db_session,
+    sample_user_data,
+):
+    from auth.password import get_password_hash
+    from service.user import create_user
+
+    user_data = sample_user_data.copy()
+    user_data["password_hash"] = get_password_hash(user_data.pop("password"))
+    user = await create_user(test_db_session, user_data)
+    from datetime import datetime, timedelta, timezone
+
+    sub = PlanSubscription(
+        user_id=user.id,
+        dodo_subscription_id="sub_ro",
+        dodo_customer_id="cus_ro",
+        status=SUBSCRIPTION_STATUS_ACTIVE,
+        product_id="prod_ro",
+        current_period_end=datetime.now(timezone.utc) + timedelta(days=30),
+    )
+    test_db_session.add(sub)
+    await test_db_session.flush()
+
+    monkeypatch_billing = pytest.MonkeyPatch()
+    monkeypatch_billing.setattr(
+        "flit_mcp.oauth.dcr.is_billing_configured",
+        lambda: True,
+    )
+    try:
+        verifier, challenge = _pkce_pair()
+        state = "scope-downgrade-state"
+
+        test_client.get(
+            "/mcp/oauth/authorize",
+            params={
+                "client_id": "dynamic",
+                "client_name": "Scope Downgrade App",
+                "redirect_uri": "http://127.0.0.1:6666/callback",
+                "response_type": "code",
+                "state": state,
+                "code_challenge": challenge,
+                "code_challenge_method": "S256",
+                "resource": "http://testserver/mcp",
+                "scope": "read write",
+            },
+        )
+        test_client.post(
+            "/mcp/oauth/login",
+            data={
+                "state": state,
+                "email": sample_user_data["email"],
+                "password": "testpassword123",
+            },
+        )
+        consent_resp = test_client.post(
+            "/mcp/oauth/consent",
+            data={"state": state, "action": "allow", "scope": "read"},
+            follow_redirects=False,
+        )
+        assert consent_resp.status_code == 302
+        qs = parse_qs(urlparse(consent_resp.headers["location"]).query)
+        registered_client_id = qs["client_id"][0]
+
+        token_resp = test_client.post(
+            "/mcp/oauth/token",
+            data={
+                "grant_type": "authorization_code",
+                "code": qs["code"][0],
+                "redirect_uri": "http://127.0.0.1:6666/callback",
+                "client_id": registered_client_id,
+                "code_verifier": verifier,
+                "resource": "http://testserver/mcp",
+            },
+        )
+        assert token_resp.status_code == 200
+        assert token_resp.json().get("scope") == "read"
     finally:
         monkeypatch_billing.undo()
 

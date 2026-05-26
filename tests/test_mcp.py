@@ -62,6 +62,20 @@ def _mcp_headers(token: str) -> dict[str, str]:
     }
 
 
+def _tools_list(test_client, token: str) -> dict:
+    body = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/list",
+        "params": {},
+    }
+    response = test_client.post("/mcp", headers=_mcp_headers(token), json=body)
+    assert response.status_code == 200
+    data = response.json()
+    assert "result" in data
+    return data
+
+
 def _tools_call(test_client, token: str, name: str, arguments: dict | None = None) -> dict:
     body = {
         "jsonrpc": "2.0",
@@ -145,6 +159,56 @@ async def test_mcp_list_notes_with_api_key(
     assert isinstance(note["created_at"], str)
     assert isinstance(note["updated_at"], str)
     assert "T" in note["created_at"]
+
+
+@pytest.mark.asyncio
+async def test_read_scope_hides_write_tools_from_list(
+    mcp_enabled, test_client, test_db_session, sample_user_data
+):
+    from flit_mcp.tool_access import MCP_WRITE_TOOL_NAMES
+
+    user_data = sample_user_data.copy()
+    user_data["password_hash"] = get_password_hash(user_data.pop("password"))
+    user = await create_user(test_db_session, user_data)
+    await test_db_session.commit()
+
+    _, plaintext = await create_mcp_api_key(
+        test_db_session,
+        user_id=user.id,
+        name="read-only-list",
+        scope="read",
+    )
+    await test_db_session.commit()
+
+    data = _tools_list(test_client, plaintext)
+    names = {t["name"] for t in data["result"]["tools"]}
+    assert "list_notes" in names
+    assert "get_note" in names
+    assert names.isdisjoint(MCP_WRITE_TOOL_NAMES)
+
+
+@pytest.mark.asyncio
+async def test_read_write_scope_lists_all_tools(
+    mcp_enabled, test_client, test_db_session, sample_user_data
+):
+    from flit_mcp.tool_access import MCP_WRITE_TOOL_NAMES
+
+    user_data = sample_user_data.copy()
+    user_data["password_hash"] = get_password_hash(user_data.pop("password"))
+    user = await create_user(test_db_session, user_data)
+    await test_db_session.commit()
+
+    _, plaintext = await create_mcp_api_key(
+        test_db_session,
+        user_id=user.id,
+        name="read-write-list",
+        scope="read write",
+    )
+    await test_db_session.commit()
+
+    data = _tools_list(test_client, plaintext)
+    names = {t["name"] for t in data["result"]["tools"]}
+    assert MCP_WRITE_TOOL_NAMES.issubset(names)
 
 
 @pytest.mark.asyncio
