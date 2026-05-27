@@ -26,6 +26,7 @@ def mcp_dcr_env(monkeypatch, test_db_session):
     monkeypatch.setattr(settings, "MCP_RATE_LIMIT_ENABLED", False)
     monkeypatch.setattr(settings, "MCP_OAUTH_CIMD_ENABLED", True)
     monkeypatch.setattr(settings, "MCP_OAUTH_DCR_ENABLED", True)
+    monkeypatch.setattr("service.billing.is_billing_configured", lambda: False)
 
     class _TestSessionCtx:
         def __init__(self, session):
@@ -40,7 +41,12 @@ def mcp_dcr_env(monkeypatch, test_db_session):
     def _test_session_factory():
         return _TestSessionCtx(test_db_session)
 
-    for mod in ("database.engine", "flit_mcp.db", "flit_mcp.router_setup"):
+    for mod in (
+        "database.engine",
+        "flit_mcp.db",
+        "flit_mcp.router_setup",
+        "middleware.mcp_entitlement",
+    ):
         monkeypatch.setattr(f"{mod}.AsyncSessionFactory", _test_session_factory)
 
     spa_mount = None
@@ -171,7 +177,7 @@ async def test_browser_connect_and_token_exchange(
 
     monkeypatch_billing = pytest.MonkeyPatch()
     monkeypatch_billing.setattr(
-        "flit_mcp.oauth.dcr.is_billing_configured",
+        "service.billing.is_billing_configured",
         lambda: True,
     )
     try:
@@ -278,7 +284,7 @@ async def test_consent_scope_upgrade_to_read_write(
 
     monkeypatch_billing = pytest.MonkeyPatch()
     monkeypatch_billing.setattr(
-        "flit_mcp.oauth.dcr.is_billing_configured",
+        "service.billing.is_billing_configured",
         lambda: True,
     )
     try:
@@ -361,7 +367,7 @@ async def test_consent_scope_downgrade_to_read(
 
     monkeypatch_billing = pytest.MonkeyPatch()
     monkeypatch_billing.setattr(
-        "flit_mcp.oauth.dcr.is_billing_configured",
+        "service.billing.is_billing_configured",
         lambda: True,
     )
     try:
@@ -417,13 +423,15 @@ async def test_consent_scope_downgrade_to_read(
 
 
 @pytest.mark.asyncio
-async def test_dynamic_connect_requires_subscription_when_billing_configured(
+async def test_dynamic_connect_oauth_succeeds_but_mcp_usage_blocked_without_entitlement(
     mcp_dcr_env,
     test_client,
     test_db_session,
     sample_user_data,
 ):
+    """OAuth connect is allowed without subscription; POST /mcp is blocked when billing is on."""
     from auth.password import get_password_hash
+    from service.entitlement import ENTITLEMENT_REQUIRED_DETAIL, MCP_ENTITLEMENT_JSONRPC_CODE
     from service.user import create_user
 
     user_data = sample_user_data.copy()
@@ -433,7 +441,7 @@ async def test_dynamic_connect_requires_subscription_when_billing_configured(
 
     monkeypatch_billing = pytest.MonkeyPatch()
     monkeypatch_billing.setattr(
-        "flit_mcp.oauth.dcr.is_billing_configured",
+        "service.billing.is_billing_configured",
         lambda: True,
     )
     try:
@@ -462,6 +470,49 @@ async def test_dynamic_connect_requires_subscription_when_billing_configured(
             },
         )
         assert login_resp.status_code == 200
-        assert "subscription is required" in login_resp.text.lower()
+        assert "subscription is required" not in login_resp.text.lower()
+
+        consent_resp = test_client.post(
+            "/mcp/oauth/consent",
+            data={"state": state, "action": "allow", "scope": "read"},
+            follow_redirects=False,
+        )
+        assert consent_resp.status_code == 302
+        qs = parse_qs(urlparse(consent_resp.headers["location"]).query)
+        registered_client_id = qs["client_id"][0]
+
+        token_resp = test_client.post(
+            "/mcp/oauth/token",
+            data={
+                "grant_type": "authorization_code",
+                "code": qs["code"][0],
+                "redirect_uri": "http://127.0.0.1:8888/callback",
+                "client_id": registered_client_id,
+                "code_verifier": verifier,
+                "resource": "http://testserver/mcp",
+            },
+        )
+        assert token_resp.status_code == 200
+        access_token = token_resp.json()["access_token"]
+
+        mcp_resp = test_client.post(
+            "/mcp",
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json",
+                "MCP-Protocol-Version": "2025-06-18",
+            },
+            json={
+                "jsonrpc": "2.0",
+                "id": 42,
+                "method": "tools/list",
+                "params": {},
+            },
+        )
+        assert mcp_resp.status_code == 200
+        body = mcp_resp.json()
+        assert body["id"] == 42
+        assert body["error"]["code"] == MCP_ENTITLEMENT_JSONRPC_CODE
+        assert ENTITLEMENT_REQUIRED_DETAIL in body["error"]["message"]
     finally:
         monkeypatch_billing.undo()

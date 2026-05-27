@@ -13,6 +13,10 @@
 		<changefreq>monthly</changefreq>
 	</url>
 	<url>
+		<loc>https://core.flit-pkm.com/billing</loc>
+		<changefreq>monthly</changefreq>
+	</url>
+	<url>
 		<loc>https://core.flit-pkm.com/login</loc>
 		<changefreq>monthly</changefreq>
 	</url>

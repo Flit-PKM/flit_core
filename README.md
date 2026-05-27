@@ -117,13 +117,15 @@ The OAuth login/consent pages use self-contained HTML/CSS under `src/flit_mcp/oa
 
 Read-only tokens (`scope=read`) only expose read tools in MCP `tools/list`; write tools remain blocked on `tools/call` as well.
 
+**Entitlement (billing):** When Dodo billing is configured, **sync** (`/api/sync/*`) and **MCP usage** (`POST /mcp` with a valid API key or OAuth token) require an active plan subscription or a non-expired access-code grant. App pairing (`POST /api/connect/exchange`), MCP OAuth connect/token issuance, and creating MCP API keys (`POST /mcp/api-keys`) are allowed without entitlement; unentitled users are blocked when they actually sync or call MCP tools.
+
 If a connector shows a **blank popup** and “authenticated” without a Flit login screen, check server logs: you should see `GET /mcp/oauth/authorize`. If you only see `GET /mcp` with **200** and HTML, the request was hitting the SPA before `legacy_sse` was enabled on the MCP router. After a correct connect, `POST /mcp` with a valid token should return tools via `tools/list`; an empty tool list means MCP Bearer auth never succeeded.
 
 **Client registration:**
 
 - **CIMD (recommended):** Host a JSON metadata document at an HTTPS URL and use that URL as `client_id`. The server advertises `client_id_metadata_document_supported: true` in `/.well-known/oauth-authorization-server`.
 - **Pre-registered:** Set `MCP_OAUTH_STATIC_CLIENTS_JSON` with known `client_id` and `redirect_uris` for clients that do not support CIMD yet.
-- **Dynamic Client Registration (opt-in):** Set `MCP_OAUTH_DCR_ENABLED=true`. New desktop clients open the browser to `GET /mcp/oauth/authorize` with `client_id=dynamic`, `client_name`, PKCE, and `redirect_uri` (no Flit login JWT in the app). After login and consent, the redirect includes `code`, `state`, and `client_id`; exchange at `POST /mcp/oauth/token`. Subscription (or access grant) is required at login when billing is configured. RFC 7591 clients may also call unauthenticated `POST /mcp/oauth/register` (advertised as `registration_endpoint` in metadata).
+- **Dynamic Client Registration (opt-in):** Set `MCP_OAUTH_DCR_ENABLED=true`. New desktop clients open the browser to `GET /mcp/oauth/authorize` with `client_id=dynamic`, `client_name`, PKCE, and `redirect_uri` (no Flit login JWT in the app). After login and consent, the redirect includes `code`, `state`, and `client_id`; exchange at `POST /mcp/oauth/token`. RFC 7591 clients may also call unauthenticated `POST /mcp/oauth/register` (advertised as `registration_endpoint` in metadata).
 
 **Manual verification:**
 

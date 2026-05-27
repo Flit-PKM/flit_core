@@ -19,7 +19,6 @@ from flit_mcp.oauth.dcr import (
     pending_display_client,
     register_oauth_client,
     registration_response_payload,
-    user_has_mcp_entitlement,
     validate_registration_request,
 )
 from flit_mcp.oauth.html import consent_html, login_html
@@ -59,9 +58,6 @@ from flit_mcp.oauth.clients import McpOAuthClient
 router = APIRouter(prefix="/mcp/oauth", tags=["mcp-oauth"])
 
 MCP_SESSION_COOKIE = "mcp_oauth_state"
-MCP_ENTITLEMENT_ERROR = (
-    "An active subscription is required to connect MCP clients."
-)
 
 _STATIC_DIR = Path(__file__).resolve().parent / "static"
 _FLIT_LOGO_PATH = _STATIC_DIR / "flit_logo.svg"
@@ -255,14 +251,6 @@ async def oauth_login(
         raise HTTPException(status_code=403, detail="Inactive user")
     await touch_last_login(db, user.id)
 
-    if pending.dynamic_registration and not await user_has_mcp_entitlement(db, user.id):
-        return _html_for_pending(
-            pending,
-            client,
-            error=MCP_ENTITLEMENT_ERROR,
-            google_enabled=_google_enabled(),
-        )
-
     await set_pending_user(db, pending, user.id)
     return _html_for_pending(pending, client)
 
@@ -302,8 +290,6 @@ async def oauth_consent(
 
     include_client_id = pending.dynamic_registration
     if pending.dynamic_registration:
-        if not await user_has_mcp_entitlement(db, pending.user_id):
-            raise HTTPException(status_code=403, detail=MCP_ENTITLEMENT_ERROR)
         registered = await register_oauth_client(
             db,
             client_name=pending.client_name or "Application",
@@ -397,14 +383,6 @@ async def google_callback(
         raise HTTPException(status_code=403, detail="Inactive user")
 
     await touch_last_login(db, user.id)
-
-    if pending.dynamic_registration and not await user_has_mcp_entitlement(db, user.id):
-        return _html_for_pending(
-            pending,
-            client,
-            error=MCP_ENTITLEMENT_ERROR,
-            google_enabled=_google_enabled(),
-        )
 
     await set_pending_user(db, pending, user.id)
     return _html_for_pending(pending, client)

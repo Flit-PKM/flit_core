@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta, timezone
+from unittest.mock import patch
 
 import pytest
 from fastapi import status
@@ -10,9 +12,13 @@ from fastapi import status
 from config import settings
 from flit_mcp.setup import register_mcp
 from main import app
+from models.plan_subscription import PlanSubscription
+from service.billing import SUBSCRIPTION_STATUS_ACTIVE
+from service.entitlement import ENTITLEMENT_REQUIRED_DETAIL, MCP_ENTITLEMENT_JSONRPC_CODE
 from service.mcp_api_key import create_mcp_api_key
 from service.user import create_user
 from auth.password import get_password_hash
+from service.access_code import activate_code, create_access_code
 
 
 @pytest.fixture
@@ -22,6 +28,7 @@ def mcp_enabled(monkeypatch, test_db_session):
     monkeypatch.setattr(settings, "MCP_ENABLED", True)
     monkeypatch.setattr(settings, "PUBLIC_BASE_URL", "http://testserver")
     monkeypatch.setattr(settings, "MCP_RATE_LIMIT_ENABLED", False)
+    monkeypatch.setattr("service.billing.is_billing_configured", lambda: False)
 
     class _TestSessionCtx:
         def __init__(self, session):
@@ -36,7 +43,12 @@ def mcp_enabled(monkeypatch, test_db_session):
     def _test_session_factory():
         return _TestSessionCtx(test_db_session)
 
-    for mod in ("database.engine", "flit_mcp.db", "flit_mcp.router_setup"):
+    for mod in (
+        "database.engine",
+        "flit_mcp.db",
+        "flit_mcp.router_setup",
+        "middleware.mcp_entitlement",
+    ):
         monkeypatch.setattr(f"{mod}.AsyncSessionFactory", _test_session_factory)
 
     # main.py mounts the SPA at / before tests enable MCP; re-order so API/MCP win.
@@ -444,3 +456,116 @@ async def test_mcp_catalog_endpoint(test_client):
     assert "tools" in data
     assert len(data["tools"]) >= 1
     assert any(t["name"] == "list_notes" for t in data["tools"])
+
+
+@pytest.mark.asyncio
+async def test_mcp_tools_list_blocked_without_entitlement_when_billing_on(
+    mcp_enabled, test_client, test_db_session, sample_user_data
+):
+    user_data = sample_user_data.copy()
+    user_data["password_hash"] = get_password_hash(user_data.pop("password"))
+    user = await create_user(test_db_session, user_data)
+    _, api_key = await create_mcp_api_key(
+        test_db_session, user_id=user.id, name="blocked", scope="read"
+    )
+    await test_db_session.commit()
+
+    body = {
+        "jsonrpc": "2.0",
+        "id": 99,
+        "method": "tools/list",
+        "params": {},
+    }
+    with patch("service.billing.is_billing_configured", return_value=True):
+        response = test_client.post(
+            "/mcp",
+            headers=_mcp_headers(api_key),
+            json=body,
+        )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["id"] == 99
+    assert data["error"]["code"] == MCP_ENTITLEMENT_JSONRPC_CODE
+    assert ENTITLEMENT_REQUIRED_DETAIL in data["error"]["message"]
+
+
+@pytest.mark.asyncio
+async def test_mcp_tools_list_allowed_with_active_subscription_when_billing_on(
+    mcp_enabled, test_client, test_db_session, sample_user_data
+):
+    user_data = sample_user_data.copy()
+    user_data["password_hash"] = get_password_hash(user_data.pop("password"))
+    user = await create_user(test_db_session, user_data)
+    sub = PlanSubscription(
+        user_id=user.id,
+        dodo_subscription_id="sub_mcp_test",
+        dodo_customer_id="cus_mcp",
+        status=SUBSCRIPTION_STATUS_ACTIVE,
+        product_id="prod_mcp",
+        current_period_end=datetime.now(timezone.utc) + timedelta(days=30),
+    )
+    test_db_session.add(sub)
+    _, api_key = await create_mcp_api_key(
+        test_db_session, user_id=user.id, name="subscribed", scope="read"
+    )
+    await test_db_session.commit()
+
+    with patch("service.billing.is_billing_configured", return_value=True):
+        data = _tools_list(test_client, api_key)
+    assert "result" in data
+    assert "tools" in data["result"]
+
+
+@pytest.mark.asyncio
+async def test_mcp_tools_list_allowed_with_access_grant_when_billing_on(
+    mcp_enabled, test_client, test_db_session, sample_user_data
+):
+    user_data = sample_user_data.copy()
+    user_data["password_hash"] = get_password_hash(user_data.pop("password"))
+    user = await create_user(test_db_session, user_data)
+    admin_data = {
+        "username": "admin_mcp",
+        "email": "admin_mcp@example.com",
+        "password_hash": get_password_hash("adminpass123"),
+        "is_verified": False,
+    }
+    admin = await create_user(test_db_session, admin_data)
+    access_code = await create_access_code(
+        db=test_db_session, period_weeks=4, created_by=admin.id
+    )
+    await activate_code(db=test_db_session, code=access_code.code, user_id=user.id)
+    _, api_key = await create_mcp_api_key(
+        test_db_session, user_id=user.id, name="grant", scope="read"
+    )
+    await test_db_session.commit()
+
+    with patch("service.billing.is_billing_configured", return_value=True):
+        data = _tools_list(test_client, api_key)
+    assert "result" in data
+    assert "tools" in data["result"]
+
+
+@pytest.mark.asyncio
+async def test_mcp_api_key_create_allowed_without_entitlement_when_billing_on(
+    mcp_enabled, test_client, test_db_session, sample_user_data
+):
+    user_data = sample_user_data.copy()
+    user_data["password_hash"] = get_password_hash(user_data.pop("password"))
+    await create_user(test_db_session, user_data)
+    await test_db_session.commit()
+
+    login = test_client.post(
+        "/api/auth/login-json",
+        json={"email": sample_user_data["email"], "password": "testpassword123"},
+    )
+    assert login.status_code == 200
+    jwt = login.json()["access_token"]
+
+    with patch("service.billing.is_billing_configured", return_value=True):
+        create_resp = test_client.post(
+            "/mcp/api-keys",
+            headers={"Authorization": f"Bearer {jwt}"},
+            json={"name": "no-entitlement", "scope": "read"},
+        )
+    assert create_resp.status_code == 201
+    assert create_resp.json()["api_key"].startswith("flit_mcp_")

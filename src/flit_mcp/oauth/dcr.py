@@ -13,8 +13,6 @@ from exceptions import ValidationError
 from flit_mcp.oauth.clients import McpOAuthClient
 from models.mcp_oauth_authorization_code import McpOAuthPendingAuthorization
 from models.mcp_oauth_registered_client import McpOAuthRegisteredClient
-from service.access_code import get_active_access_grant
-from service.billing import SUBSCRIPTION_STATUS_ACTIVE, get_subscription_for_user, is_billing_configured
 from service.mcp_oauth import redirect_uri_is_valid_scheme
 
 
@@ -142,13 +140,3 @@ def pending_display_client(pending: McpOAuthPendingAuthorization) -> McpOAuthCli
             exact_redirect_match=True,
         )
     raise ValueError("pending_display_client requires dynamic_registration pending")
-
-
-async def user_has_mcp_entitlement(session: AsyncSession, user_id: int) -> bool:
-    if not is_billing_configured():
-        return True
-    sub = await get_subscription_for_user(session, user_id)
-    if sub and sub.status == SUBSCRIPTION_STATUS_ACTIVE:
-        return True
-    grant = await get_active_access_grant(session, user_id)
-    return grant is not None

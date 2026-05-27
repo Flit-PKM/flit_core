@@ -4,7 +4,7 @@ import logging
 
 from config import settings
 from database.engine import AsyncSessionFactory
-from exceptions import BusinessLogicError, ValidationError
+from exceptions import AuthorizationError, BusinessLogicError, ValidationError
 from fastapi_mcp_router import MCPRouter
 from flit_mcp.auth.context import McpAuthContext
 from flit_mcp.auth.contextvar import mcp_auth_ctx_var
@@ -12,6 +12,7 @@ from flit_mcp.auth.resolve import resolve_mcp_auth
 from flit_mcp.oauth.metadata import oauth_protected_resource_metadata
 from flit_mcp.rate_limit import check_mcp_rate_limit
 from flit_mcp.tool_access import mcp_tool_filter
+from service.entitlement import require_active_entitlement
 from service.mcp_oauth import mcp_issuer
 
 logger = logging.getLogger(__name__)
@@ -36,6 +37,11 @@ async def _mcp_auth_validator(
                     bool(api_key),
                 )
                 return False
+            try:
+                await require_active_entitlement(session, ctx.user_id)
+            except AuthorizationError:
+                await session.rollback()
+                raise
             check_mcp_rate_limit(ctx.user_id)
             await session.commit()
             mcp_auth_ctx_var.set(ctx)
