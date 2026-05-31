@@ -53,7 +53,8 @@ from service.note_category import (
 )
 from service.relationship import (
     create_relationship as create_relationship_svc,
-    delete_relationship as delete_relationship_svc,
+    delete_relationship_for_user as delete_relationship_for_user_svc,
+    filter_relationships_with_active_peers,
     list_relationships_for_note,
 )
 from service.user import get_user
@@ -109,27 +110,9 @@ async def _build_note_detail_read(
     relationships_raw = await list_relationships_for_note(
         db, note_id, skip=0, limit=1000
     )
-    other_note_ids = {
-        rel.note_b_id if rel.note_a_id == note_id else rel.note_a_id
-        for rel in relationships_raw
-    }
-    if other_note_ids:
-        result = await db.execute(
-            select(Note.id).where(
-                Note.id.in_(other_note_ids),
-                Note.user_id == user_id,
-            )
-        )
-        user_other_note_ids = {row[0] for row in result.all()}
-    else:
-        user_other_note_ids = set()
-
-    filtered_rels = [
-        rel
-        for rel in relationships_raw
-        if (rel.note_b_id if rel.note_a_id == note_id else rel.note_a_id)
-        in user_other_note_ids
-    ]
+    filtered_rels = await filter_relationships_with_active_peers(
+        db, note_id, user_id, relationships_raw
+    )
     relationships = [RelationshipRead.model_validate(r) for r in filtered_rels]
 
     return NoteDetailRead(
@@ -555,13 +538,12 @@ async def create_relationship(
     ctx = get_current_mcp_auth()
     _write_guard(ctx)
     async with mcp_db_session() as db:
-        for nid in (note_a_id, note_b_id):
-            await _get_owned_note(db, nid, ctx.user_id)
-        rel_type = (
-            RelationshipType(type)
-            if type in RelationshipType.__members__
-            else RelationshipType.RELATED_TO
-        )
+        if type not in RelationshipType.__members__:
+            raise ValidationError(
+                "type must be one of: FOLLOWS_ON, SIMILAR_TO, CONTRADICTS, "
+                "REFERENCES, RELATED_TO"
+            )
+        rel_type = RelationshipType(type)
         rel = await create_relationship_svc(
             db,
             RelationshipCreate(
@@ -569,6 +551,7 @@ async def create_relationship(
                 note_b_id=note_b_id,
                 type=rel_type,
             ),
+            ctx.user_id,
         )
         return dump_model(RelationshipRead.model_validate(rel))
 
@@ -582,9 +565,9 @@ async def delete_relationship(
     ctx = get_current_mcp_auth()
     _write_guard(ctx)
     async with mcp_db_session() as db:
-        for nid in (note_a_id, note_b_id):
-            await _get_owned_note(db, nid, ctx.user_id)
-        await delete_relationship_svc(db, note_a_id, note_b_id)
+        await delete_relationship_for_user_svc(
+            db, note_a_id, note_b_id, ctx.user_id
+        )
         return {"deleted": True}
 
 
@@ -613,7 +596,9 @@ async def link_note_to_category(
         await _get_owned_note(db, note_id, ctx.user_id)
         await get_category_or_404(db, category_id, ctx.user_id)
         link = await link_note_category(
-            db, NoteCategoryCreate(note_id=note_id, category_id=category_id)
+            db,
+            NoteCategoryCreate(note_id=note_id, category_id=category_id),
+            ctx.user_id,
         )
         return dump_model(NoteCategoryRead.model_validate(link))
 

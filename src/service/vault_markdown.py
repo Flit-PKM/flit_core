@@ -443,6 +443,7 @@ async def _ensure_category_for_note(
         await link_note_category(
             session,
             NoteCategoryCreate(note_id=note_id, category_id=category.id),
+            user_id,
         )
 
 

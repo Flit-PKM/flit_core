@@ -15,6 +15,7 @@ from schemas.note import NoteCreate, NoteUpdate
 from service.note_persistence import flush_note as persistence_flush_note
 from service.note_persistence import insert_note as persistence_insert_note
 from service.note_persistence import soft_delete_note as persistence_soft_delete_note
+from service.relationship import soft_delete_relationships_for_note
 from service.note_state_hash import body_hash, compute_state_hash
 from service.notesearch import search_notes, upsert_notesearch
 
@@ -239,4 +240,5 @@ async def delete_note(session: AsyncSession, note_id: int, user_id: int) -> None
     if not note:
         raise NotFoundError("Note not found")
     await persistence_soft_delete_note(session, note)
+    await soft_delete_relationships_for_note(session, note_id)
     logger.info("Note soft-deleted: id=%s", note_id)

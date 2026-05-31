@@ -568,6 +568,23 @@ async def _user_note_ids(session: AsyncSession, user_id: int) -> set[int]:
     return {row[0] for row in r.all()}
 
 
+async def _active_user_note_ids(session: AsyncSession, user_id: int) -> set[int]:
+    r = await session.execute(
+        select(Note.id).where(Note.user_id == user_id, Note.is_deleted == False)
+    )
+    return {row[0] for row in r.all()}
+
+
+async def _active_user_category_ids(session: AsyncSession, user_id: int) -> set[int]:
+    r = await session.execute(
+        select(Category.id).where(
+            Category.user_id == user_id,
+            Category.is_deleted == False,
+        )
+    )
+    return {row[0] for row in r.all()}
+
+
 async def compare_relationships(
     session: AsyncSession,
     user_id: int,
@@ -649,13 +666,13 @@ async def sync_relationships(
 ) -> list["SyncRelationshipPushResult"]:
     from schemas.sync import RelationshipSync, SyncRelationshipPushResult
 
-    user_notes = await _user_note_ids(session, user_id)
+    active_notes = await _active_user_note_ids(session, user_id)
     results = []
     for s in relationships:
         try:
             if (
-                s.note_a_core_id not in user_notes
-                or s.note_b_core_id not in user_notes
+                s.note_a_core_id not in active_notes
+                or s.note_b_core_id not in active_notes
             ):
                 results.append(
                     SyncRelationshipPushResult(
@@ -1024,15 +1041,14 @@ async def sync_note_categories(
 ) -> list["SyncNoteCategoryPushResult"]:
     from schemas.sync import NoteCategorySync, SyncNoteCategoryPushResult
 
-    user_notes = await _user_note_ids(session, user_id)
-    r = await session.execute(select(Category).where(Category.user_id == user_id))
-    user_cats = {c.id for c in r.scalars().all()}
+    active_notes = await _active_user_note_ids(session, user_id)
+    active_cats = await _active_user_category_ids(session, user_id)
     results = []
     for s in note_categories:
         try:
             if (
-                s.note_core_id not in user_notes
-                or s.category_core_id not in user_cats
+                s.note_core_id not in active_notes
+                or s.category_core_id not in active_cats
             ):
                 results.append(
                     SyncNoteCategoryPushResult(

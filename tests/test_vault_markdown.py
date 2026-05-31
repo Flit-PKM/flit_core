@@ -117,6 +117,7 @@ async def test_export_zip_structure(
     await link_note_category(
         test_db_session,
         NoteCategoryCreate(note_id=note.id, category_id=work.id),
+        user.id,
     )
     await test_db_session.commit()
 
@@ -292,6 +293,7 @@ async def test_import_relationship_deduplication_and_skips(
             note_b_id=b.id,
             type=RelationshipType.SIMILAR_TO,
         ),
+        user.id,
     )
     await test_db_session.commit()
 
@@ -363,6 +365,7 @@ async def test_export_import_round_trip_content(
             note_b_id=n2.id,
             type=RelationshipType.RELATED_TO,
         ),
+        user.id,
     )
     await test_db_session.commit()
 

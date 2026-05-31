@@ -41,7 +41,7 @@ async def add_category_to_note(
             detail="Not authorized to modify this note",
         )
     await get_category_or_404(db, data.category_id, current_user.id)
-    link = await link_note_category(db, data)
+    link = await link_note_category(db, data, current_user.id)
     await db.commit()
     await db.refresh(link)
     logger.info(

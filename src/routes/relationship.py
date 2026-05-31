@@ -12,9 +12,11 @@ from logging_config import get_logger
 from models.user import User
 from schemas.relationship import RelationshipCreate, RelationshipRead
 from service.note import get_note
+from exceptions import AuthorizationError, NotFoundError
 from service.relationship import (
     create_relationship,
-    delete_relationship,
+    delete_relationship_for_user,
+    filter_relationships_with_active_peers,
     get_relationship_or_404,
     list_relationships_for_note,
 )
@@ -65,14 +67,9 @@ async def list_relationships(
         relationships = await list_relationships_for_note(
             db, note_id, skip=skip, limit=limit
         )
-        # Filter to only return relationships where both notes belong to the user
-        filtered_rels = []
-        for rel in relationships:
-            # Check both notes belong to user
-            note_a = await get_note(db, rel.note_a_id)
-            note_b = await get_note(db, rel.note_b_id)
-            if note_a and note_b and note_a.user_id == current_user.id and note_b.user_id == current_user.id:
-                filtered_rels.append(rel)
+        filtered_rels = await filter_relationships_with_active_peers(
+            db, note_id, current_user.id, relationships
+        )
         logger.info(
             f"User {current_user.id} fetched {len(filtered_rels)} relationships for note {note_id}"
         )
@@ -123,7 +120,9 @@ async def create_relationship_endpoint(
     await _verify_note_ownership(db, relationship_data.note_a_id, current_user.id)
     await _verify_note_ownership(db, relationship_data.note_b_id, current_user.id)
     
-    relationship = await create_relationship(db, relationship_data)
+    relationship = await create_relationship(
+        db, relationship_data, current_user.id
+    )
     logger.info(
         f"User {current_user.id} created relationship: {relationship_data.note_a_id} -> {relationship_data.note_b_id}"
     )
@@ -144,12 +143,21 @@ async def delete_relationship_endpoint(
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_async_session),
 ):
-    """Delete a relationship. Verifies both notes belong to the user."""
-    # Verify both notes belong to user
-    await _verify_note_ownership(db, note_a_id, current_user.id)
-    await _verify_note_ownership(db, note_b_id, current_user.id)
-    
-    await delete_relationship(db, note_a_id, note_b_id)
+    """Delete a relationship. User must own at least one endpoint note."""
+    try:
+        await delete_relationship_for_user(
+            db, note_a_id, note_b_id, current_user.id
+        )
+    except NotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Relationship not found",
+        )
+    except AuthorizationError:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to delete this relationship",
+        )
     logger.info(
         f"User {current_user.id} deleted relationship: {note_a_id} -> {note_b_id}"
     )

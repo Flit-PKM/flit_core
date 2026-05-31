@@ -3,6 +3,7 @@ import logging
 from pathlib import Path
 
 from fastapi import FastAPI, Request, status
+from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
@@ -176,9 +177,9 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
         "\n".join("    " + line for line in errors_formatted.splitlines()),
         "\n".join("    " + line for line in body_formatted.splitlines()),
     )
-    content: dict = {"detail": exc.errors()}
+    content: dict = {"detail": jsonable_encoder(exc.errors())}
     if settings.ENVIRONMENT == "development" and hasattr(exc, "body"):
-        content["body"] = exc.body
+        content["body"] = jsonable_encoder(exc.body)
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
         content=content,

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from models.relationship import RelationshipType
 
@@ -32,6 +32,12 @@ class RelationshipBase(BaseModel):
 
 
 class RelationshipCreate(RelationshipBase):
+    @model_validator(mode="after")
+    def notes_must_differ(self) -> "RelationshipCreate":
+        if self.note_a_id == self.note_b_id:
+            raise ValueError("note_a_id and note_b_id must differ")
+        return self
+
     model_config = ConfigDict(
         json_schema_extra={
             "example": {

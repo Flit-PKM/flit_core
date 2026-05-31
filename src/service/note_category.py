@@ -12,28 +12,21 @@ from models.category import Category
 from models.note import Note
 from models.note_category import NoteCategory
 from schemas.note_category import NoteCategoryCreate
+from service.category import get_category
+from service.note_validation import ensure_active_notes_for_user
 
 logger = get_logger(__name__)
-
-
-async def _ensure_note_exists(session: AsyncSession, note_id: int) -> None:
-    result = await session.execute(select(Note).where(Note.id == note_id))
-    if not result.scalar_one_or_none():
-        raise NotFoundError("Note not found")
-
-
-async def _ensure_category_exists(session: AsyncSession, category_id: int) -> None:
-    result = await session.execute(select(Category).where(Category.id == category_id))
-    if not result.scalar_one_or_none():
-        raise NotFoundError("Category not found")
 
 
 async def link_note_category(
     session: AsyncSession,
     data: NoteCategoryCreate,
+    user_id: int,
 ) -> NoteCategory:
-    await _ensure_note_exists(session, data.note_id)
-    await _ensure_category_exists(session, data.category_id)
+    await ensure_active_notes_for_user(session, [data.note_id], user_id)
+    category = await get_category(session, data.category_id, user_id)
+    if not category:
+        raise NotFoundError("Category not found")
     link = NoteCategory(note_id=data.note_id, category_id=data.category_id)
     session.add(link)
     try:

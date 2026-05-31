@@ -130,14 +130,19 @@ async def test_list_notes_filter_by_category_name(
         ),
     )
     await link_note_category(
-        test_db_session, NoteCategoryCreate(note_id=note_work.id, category_id=work.id)
+        test_db_session,
+        NoteCategoryCreate(note_id=note_work.id, category_id=work.id),
+        user.id,
     )
     await link_note_category(
         test_db_session,
         NoteCategoryCreate(note_id=note_personal.id, category_id=personal.id),
+        user.id,
     )
     await link_note_category(
-        test_db_session, NoteCategoryCreate(note_id=note_work2.id, category_id=work.id)
+        test_db_session,
+        NoteCategoryCreate(note_id=note_work2.id, category_id=work.id),
+        user.id,
     )
     await test_db_session.commit()
 
@@ -266,13 +271,19 @@ async def test_list_notes_filter_and_search_combined(
         ),
     )
     await link_note_category(
-        test_db_session, NoteCategoryCreate(note_id=note1.id, category_id=work.id)
+        test_db_session,
+        NoteCategoryCreate(note_id=note1.id, category_id=work.id),
+        user.id,
     )
     await link_note_category(
-        test_db_session, NoteCategoryCreate(note_id=note2.id, category_id=work.id)
+        test_db_session,
+        NoteCategoryCreate(note_id=note2.id, category_id=work.id),
+        user.id,
     )
     await link_note_category(
-        test_db_session, NoteCategoryCreate(note_id=note3.id, category_id=work.id)
+        test_db_session,
+        NoteCategoryCreate(note_id=note3.id, category_id=work.id),
+        user.id,
     )
     await test_db_session.commit()
 

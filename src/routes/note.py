@@ -11,7 +11,7 @@ from openapi_responses import owned_resource
 from database.session import get_async_session
 from exceptions import NotFoundError
 from logging_config import get_logger
-from models.note import Note
+from models.connected_app import ConnectedApp
 from models.user import User
 from schemas.category import CategoryRead
 from schemas.note import NoteCreate, NoteCreateRequest, NoteDetailRead, NoteRead, NoteUpdate
@@ -24,7 +24,10 @@ from service.note import (
     update_note,
 )
 from service.note_category import list_categories_for_note
-from service.relationship import list_relationships_for_note
+from service.relationship import (
+    filter_relationships_with_active_peers,
+    list_relationships_for_note,
+)
 
 logger = get_logger(__name__)
 
@@ -100,26 +103,9 @@ async def get_note_by_id(
     relationships_raw = await list_relationships_for_note(
         db, note_id, skip=0, limit=1000
     )
-    other_note_ids = {
-        rel.note_b_id if rel.note_a_id == note_id else rel.note_a_id
-        for rel in relationships_raw
-    }
-    if other_note_ids:
-        result = await db.execute(
-            select(Note.id).where(
-                Note.id.in_(other_note_ids),
-                Note.user_id == current_user.id,
-            )
-        )
-        user_other_note_ids = {row[0] for row in result.all()}
-    else:
-        user_other_note_ids = set()
-    filtered_rels = [
-        rel
-        for rel in relationships_raw
-        if (rel.note_b_id if rel.note_a_id == note_id else rel.note_a_id)
-        in user_other_note_ids
-    ]
+    filtered_rels = await filter_relationships_with_active_peers(
+        db, note_id, current_user.id, relationships_raw
+    )
     relationships = [RelationshipRead.model_validate(r) for r in filtered_rels]
 
     note_detail = NoteDetailRead(
@@ -141,12 +127,24 @@ async def create_note_endpoint(
     db: AsyncSession = Depends(get_async_session),
 ):
     """Create a new note for the authenticated user."""
-    # Create NoteCreate with user_id from authenticated user
+    if note_data.source_id is not None:
+        result = await db.execute(
+            select(ConnectedApp).where(
+                ConnectedApp.id == note_data.source_id,
+                ConnectedApp.user_id == current_user.id,
+            )
+        )
+        if not result.scalar_one_or_none():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid source_id for this user",
+            )
+
     note_create = NoteCreate(
         **note_data.model_dump(),
         user_id=current_user.id,
     )
-    
+
     note = await create_note(db, note_create)
     logger.info(f"User {current_user.id} created note {note.id}")
     return note
