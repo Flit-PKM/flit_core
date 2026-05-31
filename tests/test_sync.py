@@ -13,6 +13,7 @@ from auth.password import get_password_hash
 from models.chunk import Chunk
 from models.connected_app import ConnectedApp
 from models.note import Note
+from note_factory import make_test_note
 from models.plan_subscription import PlanSubscription
 from models.user import User
 from schemas.sync import ChunkVersion, NoteSync, NoteVersion
@@ -57,7 +58,7 @@ async def test_compare_omits_deleted_note_from_to_pull(
     user = sync_test_data["user"]
     app = sync_test_data["connected_app"]
 
-    note = Note(
+    note = make_test_note(
         title="Deleted Note",
         content="Will be deleted",
         type="BASE",
@@ -121,7 +122,7 @@ async def test_compare_deleted_note_in_to_pull(
     user = sync_test_data["user"]
     app = sync_test_data["connected_app"]
 
-    note = Note(
+    note = make_test_note(
         title="Deleted Note",
         content="Will be deleted",
         type="BASE",
@@ -156,7 +157,7 @@ async def test_push_is_deleted_marks_note_deleted(
     user = sync_test_data["user"]
     app = sync_test_data["connected_app"]
 
-    note = Note(
+    note = make_test_note(
         title="To Delete",
         content="Content",
         type="BASE",
@@ -288,7 +289,7 @@ async def test_push_same_version_updates_display_metadata(
     user = sync_test_data["user"]
     app = sync_test_data["connected_app"]
 
-    note = Note(
+    note = make_test_note(
         title="Metadata Note",
         content="Content",
         type="BASE",
@@ -343,7 +344,7 @@ async def test_get_notes_by_ids_includes_deleted(
     user = sync_test_data["user"]
     app = sync_test_data["connected_app"]
 
-    note = Note(
+    note = make_test_note(
         title="Deleted",
         content="Content",
         type="BASE",
@@ -372,7 +373,7 @@ async def test_compare_chunks_does_not_create_db_rows_when_core_id_none(
     user = sync_test_data["user"]
     app = sync_test_data["connected_app"]
 
-    note = Note(
+    note = make_test_note(
         title="Chunk Note",
         content="Content",
         type="BASE",

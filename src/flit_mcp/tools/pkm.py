@@ -1,15 +1,26 @@
 """MCP tools for Flit PKM — registered on flit_mcp_router."""
 
-from __future__ import annotations
+from datetime import datetime
+from typing import Annotated, Any, Literal
 
-from typing import Any
-
+from pydantic import Field
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from exceptions import NotFoundError, ValidationError
 from flit_mcp.auth.context import McpAuthContext
 from flit_mcp.auth.contextvar import get_current_mcp_auth
 from flit_mcp.auth.dependencies import require_mcp_write
 from flit_mcp.db import mcp_db_session
+from flit_mcp.errors import note_not_found
+from flit_mcp.graph import normalize_return_format, query_note_graph
+from flit_mcp.note_response import (
+    DEFAULT_LIST_SNIPPET_CHARS,
+    ReturnMode,
+    normalize_return_mode,
+    shape_note_detail_dict,
+    shape_note_dict,
+)
 from flit_mcp.router_setup import flit_mcp_router
 from flit_mcp.serialize import dump_model, dump_models
 from models.note import Note, NoteType
@@ -31,6 +42,7 @@ from service.note import (
     create_note as create_note_svc,
     delete_note as delete_note_svc,
     get_note as get_note_svc,
+    get_notes_by_ids,
     get_notes_by_user,
     update_note as update_note_svc,
 )
@@ -45,11 +57,39 @@ from service.relationship import (
     list_relationships_for_note,
 )
 from service.user import get_user
-from sqlalchemy.ext.asyncio import AsyncSession
+
+MAX_BATCH_NOTE_IDS = 50
+SortByField = Literal["updated_at", "created_at", "title"]
+SortOrder = Literal["asc", "desc"]
 
 
 def _write_guard(ctx: McpAuthContext) -> None:
     require_mcp_write(ctx)
+
+
+def _parse_optional_datetime(value: str | None) -> datetime | None:
+    if value is None:
+        return None
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def _normalize_sort_by(value: str) -> SortByField:
+    if value not in ("updated_at", "created_at", "title"):
+        raise ValidationError("sort_by must be one of: updated_at, created_at, title")
+    return value  # type: ignore[return-value]
+
+
+def _normalize_sort_order(value: str) -> SortOrder:
+    if value not in ("asc", "desc"):
+        raise ValidationError("sort_order must be asc or desc")
+    return value  # type: ignore[return-value]
+
+
+async def _get_owned_note(db: AsyncSession, note_id: int, user_id: int) -> Note:
+    note = await get_note_svc(db, note_id)
+    if not note or note.user_id != user_id:
+        raise note_not_found(note_id)
+    return note
 
 
 async def _build_note_detail_read(
@@ -101,16 +141,52 @@ async def _build_note_detail_read(
 
 @flit_mcp_router.tool()
 async def list_notes(
-    skip: int = 0,
-    limit: int = 100,
-    category_name: str | None = None,
-    search: str | None = None,
+    skip: Annotated[int, Field(description="Number of notes to skip for pagination.", ge=0)] = 0,
+    limit: Annotated[
+        int, Field(description="Maximum notes to return (1–1000).", ge=1, le=1000)
+    ] = 100,
+    category_name: Annotated[
+        str | None,
+        Field(description="Exact category name filter."),
+    ] = None,
+    search: Annotated[
+        str | None,
+        Field(description="Full-text search query (prefix, substring, fuzzy)."),
+    ] = None,
+    pinned_only: Annotated[
+        bool, Field(description="When true, return only pinned notes.")
+    ] = False,
+    updated_after: Annotated[
+        str | None,
+        Field(description="Include notes updated at or after this ISO datetime."),
+    ] = None,
+    updated_before: Annotated[
+        str | None,
+        Field(description="Include notes updated at or before this ISO datetime."),
+    ] = None,
+    sort_by: Annotated[
+        str,
+        Field(description="Sort field when not searching: updated_at, created_at, or title."),
+    ] = "updated_at",
+    sort_order: Annotated[
+        str, Field(description="Sort direction: asc or desc.")
+    ] = "desc",
+    return_mode: Annotated[
+        str,
+        Field(description="Content shape: full, metadata (omit content), or snippet."),
+    ] = "full",
+    max_content_chars: Annotated[
+        int | None,
+        Field(description="Truncate content to this length (full/snippet modes)."),
+    ] = None,
 ) -> list[dict[str, Any]]:
-    """List the authenticated user's notes with optional category filter and full-text search.
+    """List notes for discovery before get_note or get_notes.
 
-    Use for discovery before get_note. Requires read scope. limit max 1000.
+    Requires read scope. Returns only the authenticated user's notes.
+    Use return_mode=metadata or snippet to reduce token usage in list responses.
     """
     ctx = get_current_mcp_auth()
+    mode = normalize_return_mode(return_mode)
     limit = min(max(limit, 1), 1000)
     async with mcp_db_session() as db:
         notes = await get_notes_by_user(
@@ -120,35 +196,185 @@ async def list_notes(
             limit=limit,
             category_name=category_name.strip() if category_name else None,
             search=search.strip() if search else None,
+            pinned_only=pinned_only,
+            updated_after=_parse_optional_datetime(updated_after),
+            updated_before=_parse_optional_datetime(updated_before),
+            sort_by=_normalize_sort_by(sort_by),
+            sort_order=_normalize_sort_order(sort_order),
         )
-        return dump_models([NoteRead.model_validate(n) for n in notes])
+        shaped = []
+        for n in notes:
+            d = dump_model(NoteRead.model_validate(n))
+            shaped.append(
+                shape_note_dict(
+                    d,
+                    return_mode=mode,
+                    max_content_chars=max_content_chars,
+                    snippet_chars=DEFAULT_LIST_SNIPPET_CHARS,
+                )
+            )
+        return shaped
 
 
 @flit_mcp_router.tool()
-async def get_note(note_id: int) -> dict[str, Any]:
-    """Get one note by id including title, content, categories, and relationships.
+async def get_note(
+    note_id: Annotated[int, Field(description="Note id from list_notes or get_notes.")],
+    return_mode: Annotated[
+        str,
+        Field(description="Content shape: full, metadata (omit content), or snippet."),
+    ] = "full",
+    max_content_chars: Annotated[
+        int | None,
+        Field(description="Truncate content to this length (full/snippet modes)."),
+    ] = None,
+) -> dict[str, Any]:
+    """Retrieve one note by id with categories and relationships.
 
-    Requires read scope. Only your notes.
+    Requires read scope. Call after list_notes to fetch full detail for a candidate id.
     """
     ctx = get_current_mcp_auth()
+    mode = normalize_return_mode(return_mode)
     async with mcp_db_session() as db:
-        note = await get_note_svc(db, note_id)
-        if not note or note.user_id != ctx.user_id:
-            from exceptions import NotFoundError
-
-            raise NotFoundError("Note not found")
+        note = await _get_owned_note(db, note_id, ctx.user_id)
         detail = await _build_note_detail_read(db, note_id, ctx.user_id, note)
-        return dump_model(detail)
+        return shape_note_detail_dict(
+            dump_model(detail),
+            return_mode=mode,
+            max_content_chars=max_content_chars,
+        )
+
+
+@flit_mcp_router.tool()
+async def get_notes(
+    note_ids: Annotated[
+        list[int],
+        Field(description="Note ids to retrieve (max 50). Order is preserved for found notes."),
+    ],
+    include_categories: Annotated[
+        bool, Field(description="Include linked categories per note.")
+    ] = False,
+    include_relationships: Annotated[
+        bool, Field(description="Include peer relationships per note.")
+    ] = False,
+    return_mode: Annotated[
+        str,
+        Field(description="Content shape: full, metadata, or snippet."),
+    ] = "full",
+    max_content_chars: Annotated[
+        int | None,
+        Field(description="Truncate content to this length."),
+    ] = None,
+) -> dict[str, Any]:
+    """Retrieve multiple notes by id in one call.
+
+    Requires read scope. Returns found notes and missing_ids for ids not found or not owned.
+    """
+    ctx = get_current_mcp_auth()
+    mode = normalize_return_mode(return_mode)
+    if len(note_ids) > MAX_BATCH_NOTE_IDS:
+        raise ValidationError(f"note_ids may contain at most {MAX_BATCH_NOTE_IDS} ids")
+    if not note_ids:
+        return {"found": [], "missing_ids": []}
+
+    unique_requested = list(dict.fromkeys(note_ids))
+    async with mcp_db_session() as db:
+        notes = await get_notes_by_ids(db, ctx.user_id, note_ids)
+        found_ids = {n.id for n in notes}
+        missing_ids = [nid for nid in unique_requested if nid not in found_ids]
+
+        found: list[dict[str, Any]] = []
+        for note in notes:
+            if include_categories or include_relationships:
+                detail = await _build_note_detail_read(
+                    db, note.id, ctx.user_id, note
+                )
+                shaped = shape_note_detail_dict(
+                    dump_model(detail),
+                    return_mode=mode,
+                    max_content_chars=max_content_chars,
+                )
+            else:
+                shaped = shape_note_dict(
+                    dump_model(NoteRead.model_validate(note)),
+                    return_mode=mode,
+                    max_content_chars=max_content_chars,
+                )
+            found.append(shaped)
+
+        return {"found": found, "missing_ids": missing_ids}
+
+
+@flit_mcp_router.tool()
+async def query_graph(
+    starting_id: Annotated[int, Field(description="Note id to begin graph traversal from.")],
+    relation_type: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Optional relationship type filter: FOLLOWS_ON, SIMILAR_TO, "
+                "CONTRADICTS, REFERENCES, RELATED_TO."
+            )
+        ),
+    ] = None,
+    max_depth: Annotated[
+        int, Field(description="Maximum hops from starting_id (1–3).", ge=1, le=3)
+    ] = 2,
+    limit: Annotated[
+        int, Field(description="Maximum nodes to return (1–50).", ge=1, le=50)
+    ] = 50,
+    return_mode: Annotated[
+        str,
+        Field(description="Node content shape: full, metadata, or snippet."),
+    ] = "snippet",
+    max_content_chars: Annotated[
+        int | None,
+        Field(description="Truncate node content to this length."),
+    ] = None,
+    return_format: Annotated[
+        str,
+        Field(
+            description=(
+                'Result structure: "flat" (nodes + edges list, default) or '
+                '"tree" (nested root with children by traversal path).'
+            )
+        ),
+    ] = "flat",
+) -> dict[str, Any]:
+    """Traverse note relationships from a starting note via BFS.
+
+    Requires read scope. Use return_format=flat (default) for efficient listing,
+    or return_format=tree when relational depth and branching paths matter.
+    Only includes notes owned by the authenticated user.
+    """
+    ctx = get_current_mcp_auth()
+    mode = normalize_return_mode(return_mode)
+    fmt = normalize_return_format(return_format)
+    async with mcp_db_session() as db:
+        await _get_owned_note(db, starting_id, ctx.user_id)
+        return await query_note_graph(
+            db,
+            ctx.user_id,
+            starting_id,
+            relation_type=relation_type,
+            max_depth=max_depth,
+            limit=limit,
+            return_mode=mode,
+            return_format=fmt,
+            max_content_chars=max_content_chars,
+        )
 
 
 @flit_mcp_router.tool()
 async def create_note(
-    title: str,
-    content: str,
-    pinned: bool = False,
-    color: str = "",
+    title: Annotated[str, Field(description="Note title.", min_length=1)],
+    content: Annotated[str, Field(description="Note body content.", min_length=1)],
+    pinned: Annotated[bool, Field(description="Pin the note for priority listing.")] = False,
+    color: Annotated[str, Field(description="Display color (hex or name).")] = "",
 ) -> dict[str, Any]:
-    """Create a new note. Requires read write scope. Notes are always created as BASE type."""
+    """Create a new note owned by the authenticated user.
+
+    Requires read write scope. Notes are always created as BASE type.
+    """
     ctx = get_current_mcp_auth()
     _write_guard(ctx)
     body = NoteCreateRequest(
@@ -166,21 +392,22 @@ async def create_note(
 
 @flit_mcp_router.tool()
 async def update_note(
-    note_id: int,
-    title: str | None = None,
-    content: str | None = None,
-    pinned: bool | None = None,
-    color: str | None = None,
+    note_id: Annotated[int, Field(description="Note id to update.")],
+    title: Annotated[str | None, Field(description="New title (omit to leave unchanged).")] = None,
+    content: Annotated[
+        str | None, Field(description="New content — replaces entire body.")
+    ] = None,
+    pinned: Annotated[bool | None, Field(description="New pinned state.")] = None,
+    color: Annotated[str | None, Field(description="New display color.")] = None,
 ) -> dict[str, Any]:
-    """Update an existing note. Requires read write scope. Only your notes."""
+    """Update note fields. Requires read write scope. Only provided fields are changed.
+
+    To add text without replacing the body, use append_to_note instead.
+    """
     ctx = get_current_mcp_auth()
     _write_guard(ctx)
     async with mcp_db_session() as db:
-        note = await get_note_svc(db, note_id)
-        if not note or note.user_id != ctx.user_id:
-            from exceptions import NotFoundError
-
-            raise NotFoundError("Note not found")
+        await _get_owned_note(db, note_id, ctx.user_id)
         payload: dict[str, Any] = {}
         if title is not None:
             payload["title"] = title
@@ -195,7 +422,32 @@ async def update_note(
 
 
 @flit_mcp_router.tool()
-async def delete_note(note_id: int) -> dict[str, bool]:
+async def append_to_note(
+    note_id: Annotated[int, Field(description="Note id to append to.")],
+    content: Annotated[str, Field(description="Text to append to the note body.", min_length=1)],
+    separator: Annotated[
+        str, Field(description="String inserted between existing and new content.")
+    ] = "\n\n",
+) -> dict[str, Any]:
+    """Append text to a note without replacing the full content.
+
+    Requires read write scope. Use for logs, meeting notes, or incremental capture.
+    """
+    ctx = get_current_mcp_auth()
+    _write_guard(ctx)
+    async with mcp_db_session() as db:
+        note = await _get_owned_note(db, note_id, ctx.user_id)
+        new_content = note.content + separator + content
+        updated = await update_note_svc(
+            db, note_id, NoteUpdate(content=new_content)
+        )
+        return dump_model(NoteRead.model_validate(updated))
+
+
+@flit_mcp_router.tool()
+async def delete_note(
+    note_id: Annotated[int, Field(description="Note id to soft-delete.")],
+) -> dict[str, bool]:
     """Soft-delete a note. Requires read write scope."""
     ctx = get_current_mcp_auth()
     _write_guard(ctx)
@@ -206,8 +458,10 @@ async def delete_note(note_id: int) -> dict[str, bool]:
 
 @flit_mcp_router.tool()
 async def list_categories(
-    skip: int = 0,
-    limit: int = 100,
+    skip: Annotated[int, Field(description="Categories to skip.", ge=0)] = 0,
+    limit: Annotated[
+        int, Field(description="Maximum categories to return (1–1000).", ge=1, le=1000)
+    ] = 100,
 ) -> list[dict[str, Any]]:
     """List categories for the authenticated user. Requires read scope."""
     ctx = get_current_mcp_auth()
@@ -218,8 +472,10 @@ async def list_categories(
 
 
 @flit_mcp_router.tool()
-async def get_category(category_id: int) -> dict[str, Any]:
-    """Get a category by id. Requires read scope."""
+async def get_category(
+    category_id: Annotated[int, Field(description="Category id.")],
+) -> dict[str, Any]:
+    """Retrieve a category by id. Requires read scope."""
     ctx = get_current_mcp_auth()
     async with mcp_db_session() as db:
         cat = await get_category_or_404(db, category_id, ctx.user_id)
@@ -227,7 +483,9 @@ async def get_category(category_id: int) -> dict[str, Any]:
 
 
 @flit_mcp_router.tool()
-async def create_category(name: str) -> dict[str, Any]:
+async def create_category(
+    name: Annotated[str, Field(description="Category name.", min_length=1)],
+) -> dict[str, Any]:
     """Create a category. Requires read write scope."""
     ctx = get_current_mcp_auth()
     _write_guard(ctx)
@@ -237,7 +495,10 @@ async def create_category(name: str) -> dict[str, Any]:
 
 
 @flit_mcp_router.tool()
-async def update_category(category_id: int, name: str) -> dict[str, Any]:
+async def update_category(
+    category_id: Annotated[int, Field(description="Category id to rename.")],
+    name: Annotated[str, Field(description="New category name.", min_length=1)],
+) -> dict[str, Any]:
     """Rename a category. Requires read write scope."""
     ctx = get_current_mcp_auth()
     _write_guard(ctx)
@@ -249,7 +510,9 @@ async def update_category(category_id: int, name: str) -> dict[str, Any]:
 
 
 @flit_mcp_router.tool()
-async def delete_category(category_id: int) -> dict[str, bool]:
+async def delete_category(
+    category_id: Annotated[int, Field(description="Category id to delete.")],
+) -> dict[str, bool]:
     """Delete a category. Requires read write scope."""
     ctx = get_current_mcp_auth()
     _write_guard(ctx)
@@ -260,38 +523,40 @@ async def delete_category(category_id: int) -> dict[str, bool]:
 
 @flit_mcp_router.tool()
 async def list_relationships(
-    note_id: int,
-    skip: int = 0,
-    limit: int = 100,
+    note_id: Annotated[int, Field(description="Note id whose relationships to list.")],
+    skip: Annotated[int, Field(description="Relationships to skip.", ge=0)] = 0,
+    limit: Annotated[
+        int, Field(description="Maximum relationships to return.", ge=1, le=1000)
+    ] = 100,
 ) -> list[dict[str, Any]]:
-    """List relationships for a note. Requires read scope. note_id is required."""
+    """List relationships for one note (1-hop adjacency). Requires read scope."""
     ctx = get_current_mcp_auth()
     async with mcp_db_session() as db:
-        note = await get_note_svc(db, note_id)
-        if not note or note.user_id != ctx.user_id:
-            from exceptions import NotFoundError
-
-            raise NotFoundError("Note not found")
+        await _get_owned_note(db, note_id, ctx.user_id)
         rels = await list_relationships_for_note(db, note_id, skip=skip, limit=limit)
         return dump_models([RelationshipRead.model_validate(r) for r in rels])
 
 
 @flit_mcp_router.tool()
 async def create_relationship(
-    note_a_id: int,
-    note_b_id: int,
-    type: str = "RELATED_TO",
+    note_a_id: Annotated[int, Field(description="First note id.")],
+    note_b_id: Annotated[int, Field(description="Second note id.")],
+    type: Annotated[
+        str,
+        Field(
+            description=(
+                "Relationship type: FOLLOWS_ON, SIMILAR_TO, CONTRADICTS, "
+                "REFERENCES, or RELATED_TO."
+            )
+        ),
+    ] = "RELATED_TO",
 ) -> dict[str, Any]:
     """Create a relationship between two notes. Requires read write scope."""
     ctx = get_current_mcp_auth()
     _write_guard(ctx)
     async with mcp_db_session() as db:
         for nid in (note_a_id, note_b_id):
-            n = await get_note_svc(db, nid)
-            if not n or n.user_id != ctx.user_id:
-                from exceptions import NotFoundError
-
-                raise NotFoundError(f"Note not found: {nid}")
+            await _get_owned_note(db, nid, ctx.user_id)
         rel_type = (
             RelationshipType(type)
             if type in RelationshipType.__members__
@@ -309,47 +574,43 @@ async def create_relationship(
 
 
 @flit_mcp_router.tool()
-async def delete_relationship(note_a_id: int, note_b_id: int) -> dict[str, bool]:
+async def delete_relationship(
+    note_a_id: Annotated[int, Field(description="First note id of the relationship.")],
+    note_b_id: Annotated[int, Field(description="Second note id of the relationship.")],
+) -> dict[str, bool]:
     """Delete a relationship between two notes. Requires read write scope."""
     ctx = get_current_mcp_auth()
     _write_guard(ctx)
     async with mcp_db_session() as db:
         for nid in (note_a_id, note_b_id):
-            n = await get_note_svc(db, nid)
-            if not n or n.user_id != ctx.user_id:
-                from exceptions import NotFoundError
-
-                raise NotFoundError(f"Note not found: {nid}")
+            await _get_owned_note(db, nid, ctx.user_id)
         await delete_relationship_svc(db, note_a_id, note_b_id)
         return {"deleted": True}
 
 
 @flit_mcp_router.tool()
-async def list_note_categories(note_id: int) -> list[dict[str, Any]]:
+async def list_note_categories(
+    note_id: Annotated[int, Field(description="Note id whose categories to list.")],
+) -> list[dict[str, Any]]:
     """List categories linked to a note. Requires read scope."""
     ctx = get_current_mcp_auth()
     async with mcp_db_session() as db:
-        note = await get_note_svc(db, note_id)
-        if not note or note.user_id != ctx.user_id:
-            from exceptions import NotFoundError
-
-            raise NotFoundError("Note not found")
+        await _get_owned_note(db, note_id, ctx.user_id)
         cats = await list_categories_for_note(db, note_id)
         owned = [c for c in cats if c.user_id == ctx.user_id]
         return dump_models([CategoryRead.model_validate(c) for c in owned])
 
 
 @flit_mcp_router.tool()
-async def link_note_to_category(note_id: int, category_id: int) -> dict[str, Any]:
+async def link_note_to_category(
+    note_id: Annotated[int, Field(description="Note id to link.")],
+    category_id: Annotated[int, Field(description="Category id to link to.")],
+) -> dict[str, Any]:
     """Link a note to a category. Requires read write scope."""
     ctx = get_current_mcp_auth()
     _write_guard(ctx)
     async with mcp_db_session() as db:
-        note = await get_note_svc(db, note_id)
-        if not note or note.user_id != ctx.user_id:
-            from exceptions import NotFoundError
-
-            raise NotFoundError("Note not found")
+        await _get_owned_note(db, note_id, ctx.user_id)
         await get_category_or_404(db, category_id, ctx.user_id)
         link = await link_note_category(
             db, NoteCategoryCreate(note_id=note_id, category_id=category_id)
@@ -358,16 +619,15 @@ async def link_note_to_category(note_id: int, category_id: int) -> dict[str, Any
 
 
 @flit_mcp_router.tool()
-async def unlink_note_from_category(note_id: int, category_id: int) -> dict[str, bool]:
+async def unlink_note_from_category(
+    note_id: Annotated[int, Field(description="Note id to unlink.")],
+    category_id: Annotated[int, Field(description="Category id to remove.")],
+) -> dict[str, bool]:
     """Remove a note–category link. Requires read write scope."""
     ctx = get_current_mcp_auth()
     _write_guard(ctx)
     async with mcp_db_session() as db:
-        note = await get_note_svc(db, note_id)
-        if not note or note.user_id != ctx.user_id:
-            from exceptions import NotFoundError
-
-            raise NotFoundError("Note not found")
+        await _get_owned_note(db, note_id, ctx.user_id)
         await get_category_or_404(db, category_id, ctx.user_id)
         await unlink_note_category(db, note_id, category_id)
         return {"deleted": True}
@@ -375,13 +635,11 @@ async def unlink_note_from_category(note_id: int, category_id: int) -> dict[str,
 
 @flit_mcp_router.tool()
 async def get_user_profile() -> dict[str, Any]:
-    """Get the authenticated user's profile and subscription summary. Read scope only."""
+    """Get the authenticated user's profile and subscription summary. Requires read scope."""
     ctx = get_current_mcp_auth()
     async with mcp_db_session() as db:
         user = await get_user(db, ctx.user_id)
         if not user:
-            from exceptions import NotFoundError
-
             raise NotFoundError("User not found")
         sub = await get_subscription_for_user(db, ctx.user_id)
         grant = await get_active_access_grant(db, ctx.user_id)

@@ -107,6 +107,8 @@ flit_core/
 
 ### MCP OAuth for external clients
 
+See [docs/mcp-integration.md](docs/mcp-integration.md) for agent workflows, content controls, and tool reference.
+
 When `MCP_ENABLED=true`, MCP OAuth uses the same public URL as the rest of the API (`PUBLIC_BASE_URL`, or `http://127.0.0.1:8000` in development when unset):
 
 1. Clients discover auth via `401` on `POST /mcp` (and `GET /mcp` for browser popups) and `/.well-known/oauth-protected-resource`.

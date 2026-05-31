@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timedelta, timezone
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -569,3 +570,290 @@ async def test_mcp_api_key_create_allowed_without_entitlement_when_billing_on(
         )
     assert create_resp.status_code == 201
     assert create_resp.json()["api_key"].startswith("flit_mcp_")
+
+
+async def _mcp_rw_key(test_db_session, sample_user_data) -> tuple[Any, str]:
+    from auth.password import get_password_hash
+    from service.mcp_api_key import create_mcp_api_key
+    from service.user import create_user
+
+    user_data = sample_user_data.copy()
+    user_data["password_hash"] = get_password_hash(user_data.pop("password"))
+    user = await create_user(test_db_session, user_data)
+    await test_db_session.commit()
+    _, plaintext = await create_mcp_api_key(
+        test_db_session,
+        user_id=user.id,
+        name="phase1",
+        scope="read write",
+    )
+    await test_db_session.commit()
+    return user, plaintext
+
+
+def _parse_tool_result(data: dict) -> Any:
+    assert "result" in data, data
+    return json.loads(data["result"]["content"][0]["text"])
+
+
+@pytest.mark.asyncio
+async def test_list_notes_return_mode_metadata(
+    mcp_enabled, test_client, test_db_session, sample_user_data
+):
+    _, token = await _mcp_rw_key(test_db_session, sample_user_data)
+    _tools_call(
+        test_client,
+        token,
+        "create_note",
+        {"title": "Meta test", "content": "Secret long content for metadata mode"},
+    )
+    data = _tools_call(
+        test_client,
+        token,
+        "list_notes",
+        {"search": "Meta test", "return_mode": "metadata", "limit": 5},
+    )
+    notes = _parse_tool_result(data)
+    assert len(notes) >= 1
+    note = notes[0]
+    assert "content" not in note
+    assert note["content_length"] > 0
+    assert "snippet" in note
+
+
+@pytest.mark.asyncio
+async def test_list_notes_pinned_only(
+    mcp_enabled, test_client, test_db_session, sample_user_data
+):
+    _, token = await _mcp_rw_key(test_db_session, sample_user_data)
+    _tools_call(
+        test_client,
+        token,
+        "create_note",
+        {"title": "Pinned note", "content": "Pinned body", "pinned": True},
+    )
+    _tools_call(
+        test_client,
+        token,
+        "create_note",
+        {"title": "Unpinned note", "content": "Unpinned body", "pinned": False},
+    )
+    data = _tools_call(
+        test_client,
+        token,
+        "list_notes",
+        {"pinned_only": True, "limit": 100},
+    )
+    notes = _parse_tool_result(data)
+    titles = {n["title"] for n in notes}
+    assert "Pinned note" in titles
+    assert "Unpinned note" not in titles
+    assert all(n["pinned"] for n in notes)
+
+
+@pytest.mark.asyncio
+async def test_append_to_note(
+    mcp_enabled, test_client, test_db_session, sample_user_data
+):
+    _, token = await _mcp_rw_key(test_db_session, sample_user_data)
+    created = _parse_tool_result(
+        _tools_call(
+            test_client,
+            token,
+            "create_note",
+            {"title": "Log", "content": "Line one"},
+        )
+    )
+    updated = _parse_tool_result(
+        _tools_call(
+            test_client,
+            token,
+            "append_to_note",
+            {"note_id": created["id"], "content": "Line two"},
+        )
+    )
+    assert updated["content"] == "Line one\n\nLine two"
+    assert updated["version"] == created["version"] + 1
+
+
+@pytest.mark.asyncio
+async def test_get_notes_batch_with_missing_ids(
+    mcp_enabled, test_client, test_db_session, sample_user_data
+):
+    _, token = await _mcp_rw_key(test_db_session, sample_user_data)
+    a = _parse_tool_result(
+        _tools_call(
+            test_client,
+            token,
+            "create_note",
+            {"title": "Note A", "content": "A"},
+        )
+    )
+    b = _parse_tool_result(
+        _tools_call(
+            test_client,
+            token,
+            "create_note",
+            {"title": "Note B", "content": "B"},
+        )
+    )
+    result = _parse_tool_result(
+        _tools_call(
+            test_client,
+            token,
+            "get_notes",
+            {"note_ids": [a["id"], b["id"], 999999], "return_mode": "metadata"},
+        )
+    )
+    assert len(result["found"]) == 2
+    assert 999999 in result["missing_ids"]
+    assert all("content" not in n for n in result["found"])
+
+
+@pytest.mark.asyncio
+async def test_query_graph_traversal(
+    mcp_enabled, test_client, test_db_session, sample_user_data
+):
+    _, token = await _mcp_rw_key(test_db_session, sample_user_data)
+    root = _parse_tool_result(
+        _tools_call(
+            test_client,
+            token,
+            "create_note",
+            {"title": "Root", "content": "Root content"},
+        )
+    )
+    child = _parse_tool_result(
+        _tools_call(
+            test_client,
+            token,
+            "create_note",
+            {"title": "Child", "content": "Child content"},
+        )
+    )
+    _tools_call(
+        test_client,
+        token,
+        "create_relationship",
+        {
+            "note_a_id": root["id"],
+            "note_b_id": child["id"],
+            "type": "REFERENCES",
+        },
+    )
+    graph = _parse_tool_result(
+        _tools_call(
+            test_client,
+            token,
+            "query_graph",
+            {
+                "starting_id": root["id"],
+                "relation_type": "REFERENCES",
+                "max_depth": 2,
+            },
+        )
+    )
+    assert graph["starting_id"] == root["id"]
+    assert graph["return_format"] == "flat"
+    node_titles = {n["title"] for n in graph["nodes"]}
+    assert "Root" in node_titles
+    assert "Child" in node_titles
+    assert all("depth" in n for n in graph["nodes"])
+    assert graph["nodes"][0]["depth"] == 0
+    assert len(graph["edges"]) >= 1
+    assert graph["edges"][0]["type"] == "REFERENCES"
+
+
+@pytest.mark.asyncio
+async def test_query_graph_tree_format(
+    mcp_enabled, test_client, test_db_session, sample_user_data
+):
+    _, token = await _mcp_rw_key(test_db_session, sample_user_data)
+    root = _parse_tool_result(
+        _tools_call(
+            test_client,
+            token,
+            "create_note",
+            {"title": "Root", "content": "Root content"},
+        )
+    )
+    child = _parse_tool_result(
+        _tools_call(
+            test_client,
+            token,
+            "create_note",
+            {"title": "Child", "content": "Child content"},
+        )
+    )
+    _tools_call(
+        test_client,
+        token,
+        "create_relationship",
+        {
+            "note_a_id": root["id"],
+            "note_b_id": child["id"],
+            "type": "REFERENCES",
+        },
+    )
+    graph = _parse_tool_result(
+        _tools_call(
+            test_client,
+            token,
+            "query_graph",
+            {
+                "starting_id": root["id"],
+                "return_format": "tree",
+                "max_depth": 2,
+            },
+        )
+    )
+    assert graph["return_format"] == "tree"
+    assert "nodes" not in graph
+    assert "edges" not in graph
+    tree_root = graph["root"]
+    assert tree_root["title"] == "Root"
+    assert tree_root["depth"] == 0
+    assert len(tree_root["children"]) == 1
+    child_node = tree_root["children"][0]
+    assert child_node["title"] == "Child"
+    assert child_node["depth"] == 1
+    assert child_node["via_type"] == "REFERENCES"
+    assert child_node["children"] == []
+
+
+@pytest.mark.asyncio
+async def test_get_note_not_found_actionable_message(
+    mcp_enabled, test_client, test_db_session, sample_user_data
+):
+    _, token = await _mcp_rw_key(test_db_session, sample_user_data)
+    data = _tools_call(test_client, token, "get_note", {"note_id": 424242})
+    if "error" in data:
+        assert "list_notes" in data["error"]["message"]
+    else:
+        assert data["result"].get("isError") is True
+        assert "list_notes" in data["result"]["content"][0]["text"]
+
+
+@pytest.mark.asyncio
+async def test_read_scope_hides_append_to_note(
+    mcp_enabled, test_client, test_db_session, sample_user_data
+):
+    from flit_mcp.tool_access import MCP_WRITE_TOOL_NAMES
+
+    user_data = sample_user_data.copy()
+    user_data["password_hash"] = get_password_hash(user_data.pop("password"))
+    user = await create_user(test_db_session, user_data)
+    await test_db_session.commit()
+    _, plaintext = await create_mcp_api_key(
+        test_db_session,
+        user_id=user.id,
+        name="read-only-append",
+        scope="read",
+    )
+    await test_db_session.commit()
+
+    data = _tools_list(test_client, plaintext)
+    names = {t["name"] for t in data["result"]["tools"]}
+    assert "append_to_note" not in names
+    assert "append_to_note" in MCP_WRITE_TOOL_NAMES
+

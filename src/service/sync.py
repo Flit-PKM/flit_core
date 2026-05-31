@@ -22,6 +22,7 @@ from service.note_persistence import (
     soft_delete_note as persistence_soft_delete_note,
     update_note as persistence_update_note,
 )
+from service.note_state_hash import body_hash, compute_state_hash
 from schemas.sync import (
     CategoryVersion,
     ChunkVersion,
@@ -181,6 +182,12 @@ async def sync_notes(
                 dump = note_data.model_dump()
                 db_note = Note(**dump)
                 db_note.version = note_sync.version
+                db_note.state_hash = compute_state_hash(
+                    title=note_sync.title,
+                    content=note_sync.content,
+                    pinned=note_sync.pinned,
+                    color=note_sync.color,
+                )
                 if note_sync.is_deleted:
                     db_note.is_deleted = True
                 await persistence_insert_note(
@@ -241,17 +248,28 @@ async def sync_notes(
                             session, db_note, version=note_sync.version
                         )
                     else:
-                        db_note.title = note_sync.title
-                        db_note.content = note_sync.content
+                        sync_body_changed = body_hash(
+                            title=note_sync.title, content=note_sync.content
+                        ) != body_hash(title=db_note.title, content=db_note.content)
                         db_note.type = note_sync.type
                         db_note.pinned = note_sync.pinned
                         db_note.color = note_sync.color
+                        if sync_body_changed:
+                            db_note.title = note_sync.title
+                            db_note.content = note_sync.content
+                        db_note.state_hash = compute_state_hash(
+                            title=note_sync.title,
+                            content=note_sync.content,
+                            pinned=note_sync.pinned,
+                            color=note_sync.color,
+                        )
                         db_note.version = note_sync.version
                         await persistence_update_note(
                             session,
                             db_note,
                             plaintext_title=note_sync.title,
                             plaintext_content=note_sync.content,
+                            sync_notesearch=sync_body_changed,
                         )
 
                     results.append(
@@ -280,48 +298,57 @@ async def sync_notes(
                         logger.info(
                             f"Soft-deleted note via sync: id={db_note.id}, version={db_note.version}"
                         )
-                    elif (
-                        db_note.title != note_sync.title
-                        or db_note.content != note_sync.content
-                        or db_note.type != note_sync.type
-                        or db_note.pinned != note_sync.pinned
-                        or db_note.color != note_sync.color
-                    ):
-                        # Note fields differ, accept update and increment version.
-                        db_note.title = note_sync.title
-                        db_note.content = note_sync.content
-                        db_note.type = note_sync.type
-                        db_note.pinned = note_sync.pinned
-                        db_note.color = note_sync.color
-                        if note_sync.is_deleted:
-                            db_note.is_deleted = True
-                        db_note.version += 1
-                        await persistence_update_note(
-                            session,
-                            db_note,
-                            plaintext_title=note_sync.title,
-                            plaintext_content=note_sync.content,
-                        )
-
-                        results.append(
-                            SyncPushResult(
-                                core_id=db_note.id,
-                                status="updated",
-                                server_version=db_note.version,
-                            )
-                        )
-                        logger.info(
-                            f"Updated note via sync (same version, content changed): id={db_note.id}, version={db_note.version}"
-                        )
                     else:
-                        # Same version, same content - no change needed
-                        results.append(
-                            SyncPushResult(
-                                core_id=db_note.id,
-                                status="updated",
-                                server_version=db_note.version,
-                            )
+                        sync_new_state = compute_state_hash(
+                            title=note_sync.title,
+                            content=note_sync.content,
+                            pinned=note_sync.pinned,
+                            color=note_sync.color,
                         )
+                        sync_type_changed = note_sync.type != db_note.type
+                        if sync_new_state != db_note.state_hash or sync_type_changed:
+                            sync_body_changed = body_hash(
+                                title=note_sync.title, content=note_sync.content
+                            ) != body_hash(
+                                title=db_note.title, content=db_note.content
+                            )
+                            db_note.type = note_sync.type
+                            db_note.pinned = note_sync.pinned
+                            db_note.color = note_sync.color
+                            if sync_body_changed:
+                                db_note.title = note_sync.title
+                                db_note.content = note_sync.content
+                            if note_sync.is_deleted:
+                                db_note.is_deleted = True
+                            db_note.state_hash = sync_new_state
+                            db_note.version += 1
+                            await persistence_update_note(
+                                session,
+                                db_note,
+                                plaintext_title=note_sync.title,
+                                plaintext_content=note_sync.content,
+                                sync_notesearch=sync_body_changed,
+                            )
+
+                            results.append(
+                                SyncPushResult(
+                                    core_id=db_note.id,
+                                    status="updated",
+                                    server_version=db_note.version,
+                                )
+                            )
+                            logger.info(
+                                f"Updated note via sync (same version, fields changed): id={db_note.id}, version={db_note.version}"
+                            )
+                        else:
+                            # Same version, same state - no change needed
+                            results.append(
+                                SyncPushResult(
+                                    core_id=db_note.id,
+                                    status="updated",
+                                    server_version=db_note.version,
+                                )
+                            )
 
         except Exception as e:
             logger.error(f"Error syncing note: {e}", exc_info=True)

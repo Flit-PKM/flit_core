@@ -9,6 +9,7 @@ MCP_WRITE_TOOL_NAMES: frozenset[str] = frozenset(
     {
         "create_note",
         "update_note",
+        "append_to_note",
         "delete_note",
         "create_category",
         "update_category",

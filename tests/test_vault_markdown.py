@@ -408,7 +408,9 @@ async def test_export_import_round_trip_content(
 def test_render_note_markdown_includes_relationships():
     from datetime import datetime, timezone
 
-    note = Note(
+    from note_factory import make_test_note
+
+    note = make_test_note(
         id=7,
         title="My Idea",
         content="Body",

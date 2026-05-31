@@ -150,6 +150,9 @@ async def search_notes(
     category_name: str | None = None,
     skip: int = 0,
     limit: int = 20,
+    pinned_only: bool = False,
+    updated_after: datetime | None = None,
+    updated_before: datetime | None = None,
 ) -> List[Note]:
     """
     Search non-encrypted notes by query.
@@ -170,6 +173,12 @@ async def search_notes(
                 Note.is_deleted == False,
             )
         )
+        if pinned_only:
+            stmt = stmt.where(Note.pinned == True)
+        if updated_after is not None:
+            stmt = stmt.where(Note.updated_at >= updated_after)
+        if updated_before is not None:
+            stmt = stmt.where(Note.updated_at <= updated_before)
         if category_name:
             stmt = (
                 stmt.join(NoteCategory, NoteCategory.note_id == Note.id)
@@ -192,7 +201,7 @@ async def search_notes(
 
     # Load candidates with notesearch content and updated_at
     stmt = (
-        select(NoteSearch.note_id, NoteSearch.content, Note.updated_at)
+        select(NoteSearch.note_id, NoteSearch.content, Note.updated_at, Note.pinned)
         .join(Note, Note.id == NoteSearch.note_id)
         .where(
             NoteSearch.user_id == user_id,
@@ -200,6 +209,12 @@ async def search_notes(
             Note.is_deleted == False,
         )
     )
+    if pinned_only:
+        stmt = stmt.where(Note.pinned == True)
+    if updated_after is not None:
+        stmt = stmt.where(Note.updated_at >= updated_after)
+    if updated_before is not None:
+        stmt = stmt.where(Note.updated_at <= updated_before)
     if category_name:
         stmt = (
             stmt.join(NoteCategory, NoteCategory.note_id == Note.id)
@@ -216,7 +231,7 @@ async def search_notes(
     rows = result.all()
 
     scored: List[Tuple[int, int, float, datetime | None]] = []
-    for note_id, content, updated_at in rows:
+    for note_id, content, updated_at, _pinned in rows:
         rank = _rank_note(content, query_words)
         if rank is None:
             continue

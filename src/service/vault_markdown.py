@@ -23,6 +23,7 @@ from schemas.vault_markdown import VaultMarkdownImportResult
 from service.category import create_category
 from service.note_category import get_note_category, link_note_category
 from service.note_persistence import insert_note
+from service.note_state_hash import compute_state_hash
 
 logger = get_logger(__name__)
 
@@ -527,6 +528,12 @@ async def import_vault_markdown(
             color="",
             created_at=note_data.created_at or import_time,
             updated_at=note_data.updated_at or import_time,
+        )
+        note.state_hash = compute_state_hash(
+            title=title,
+            content=content,
+            pinned=False,
+            color="",
         )
         await insert_note(
             session,

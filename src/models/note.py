@@ -26,6 +26,7 @@ class Note(Base):
         String(20), nullable=False, index=True, default=NoteType.BASE
     )
     version: Mapped[int] = mapped_column(nullable=False, default=1)
+    state_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     pinned: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     color: Mapped[str] = mapped_column(String, nullable=False, default="")
     created_at: Mapped[datetime] = mapped_column(

@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from auth.password import get_password_hash
 from models.connected_app import ConnectedApp
 from models.note import Note
+from note_factory import make_test_note
 from models.user import User
 from service.purge import purge_soft_deleted_older_than
 
@@ -52,7 +53,7 @@ async def test_purge_removes_old_soft_deleted_note(
     user = purge_test_data["user"]
     app = purge_test_data["connected_app"]
 
-    note = Note(
+    note = make_test_note(
         title="Old Deleted",
         content="Content",
         type="BASE",
@@ -90,7 +91,7 @@ async def test_purge_leaves_recent_soft_deleted(
     user = purge_test_data["user"]
     app = purge_test_data["connected_app"]
 
-    note = Note(
+    note = make_test_note(
         title="Recent Deleted",
         content="Content",
         type="BASE",
@@ -121,7 +122,7 @@ async def test_purge_leaves_non_deleted(
     user = purge_test_data["user"]
     app = purge_test_data["connected_app"]
 
-    note = Note(
+    note = make_test_note(
         title="Old But Not Deleted",
         content="Content",
         type="BASE",

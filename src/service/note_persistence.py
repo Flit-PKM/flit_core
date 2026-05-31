@@ -32,23 +32,31 @@ async def insert_note(
     return note
 
 
+async def flush_note(session: AsyncSession, note: Note) -> Note:
+    """Flush and refresh an already-modified note."""
+    await session.flush()
+    await session.refresh(note)
+    return note
+
+
 async def update_note(
     session: AsyncSession,
     note: Note,
     *,
     plaintext_title: str,
     plaintext_content: str,
+    sync_notesearch: bool = True,
 ) -> Note:
-    """Flush and refresh an already-modified note, then update notesearch."""
-    await session.flush()
-    await session.refresh(note)
-    await upsert_notesearch(
-        session,
-        note.id,
-        note.user_id,
-        plaintext_title,
-        plaintext_content,
-    )
+    """Flush and refresh an already-modified note; optionally update notesearch."""
+    await flush_note(session, note)
+    if sync_notesearch:
+        await upsert_notesearch(
+            session,
+            note.id,
+            note.user_id,
+            plaintext_title,
+            plaintext_content,
+        )
     return note
 
 
