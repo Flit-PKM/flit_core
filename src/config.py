@@ -10,7 +10,6 @@ from urllib.parse import quote
 _DEFAULT_ALLOWED_APPS: List[dict[str, str]] = [
     {"slug": "flit", "name": "Flit"},
     {"slug": "still", "name": "Still"},
-    {"slug": "mcp", "name": "MCP Agent"},
 ]
 
 _DEFAULT_CORS_ORIGINS: List[str] = ["http://localhost:5173"]

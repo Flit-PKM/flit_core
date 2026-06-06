@@ -93,7 +93,7 @@ flit_core/
 | User | `/users` | Current user profile, update |
 | Connect | `/connect` | Request code, exchange for OAuth-style tokens (app connection) |
 | OAuth | `/oauth` | Token refresh, revoke |
-| Connected apps | `/connected-apps` | List/revoke connected apps |
+| Connected apps | `/connected-apps` | List/revoke sync devices (Flit, Still — not MCP agents) |
 | Apps | `/apps` | Allowed app list (e.g. Flit, Still) |
 | Sync | `/sync` | Sync-related endpoints |
 | Notes | `/notes` | Notes CRUD |
@@ -104,6 +104,12 @@ flit_core/
 | MCP | `/mcp` | MCP server for agents (JSON-RPC tools + `flit://` resources; separate from `/api`) |
 | MCP OAuth | `/mcp/oauth` | OAuth authorization server for MCP clients (when enabled) |
 | MCP API keys | `/mcp/api-keys` | Create/list/revoke MCP API keys (uses main-app JWT; not under `/api`) |
+| MCP connections | `/mcp/connections` | List/revoke MCP OAuth sessions (desktop agents; main-app JWT) |
+| Billing | `/billing` | Dodo Payments plans, checkout, subscription, portal, webhooks |
+
+### Dodo Payments billing
+
+See [docs/billing-dodo.md](docs/billing-dodo.md) for environment variables, webhook setup, and API flow.
 
 ### MCP OAuth for external clients
 

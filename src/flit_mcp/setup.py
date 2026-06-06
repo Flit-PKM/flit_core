@@ -52,9 +52,11 @@ def register_mcp(app: FastAPI) -> None:
     from flit_mcp.oauth.routes import well_known_oauth_router
     from flit_mcp.router_setup import flit_mcp_router
     from routes.mcp_api_keys import router as mcp_api_keys_router
+    from routes.mcp_connections import router as mcp_connections_router
 
     app.include_router(flit_mcp_router, prefix="/mcp")
     app.include_router(mcp_api_keys_router)
+    app.include_router(mcp_connections_router)
     app.include_router(well_known_oauth_router())
     app.include_router(mcp_oauth_router)
     _mcp_registered = True

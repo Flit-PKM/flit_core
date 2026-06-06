@@ -18,6 +18,8 @@ class McpRefreshToken(Base):
         nullable=False,
     )
     scopes: Mapped[str] = mapped_column(String(255), nullable=False)
+    client_id: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    client_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     expires_at: Mapped[datetime] = mapped_column(nullable=False)
     revoked_at: Mapped[datetime | None] = mapped_column(nullable=True)
     created_at: Mapped[datetime] = mapped_column(nullable=False)

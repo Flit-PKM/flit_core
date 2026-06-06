@@ -1,5 +1,10 @@
-# allow crawling everything by default
+# allow crawling public marketing pages by default
 User-agent: *
+Disallow: /login
+Disallow: /register
+Disallow: /forgot-password
+Disallow: /reset-password
+Disallow: /verify
 Disallow: /notes
 Disallow: /profile
 

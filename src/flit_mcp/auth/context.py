@@ -6,7 +6,7 @@ from typing import Literal
 from flit_mcp.scopes import parse_scopes, scopes_allow_write
 
 
-McpAuthMethod = Literal["mcp_oauth", "mcp_api_key", "connected_app_oauth"]
+McpAuthMethod = Literal["mcp_oauth", "mcp_api_key"]
 
 
 @dataclass(frozen=True)

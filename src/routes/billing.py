@@ -16,6 +16,7 @@ from service.billing import (
     _webhook_event_log_summary,
     complete_subscription,
     create_checkout_session,
+    create_customer_portal_session,
     get_plans,
     get_subscription_for_user,
     handle_webhook_event,
@@ -71,6 +72,12 @@ class SubscriptionStatusResponse(BaseModel):
     status: Optional[str] = None
     current_period_end: Optional[str] = None
     dodo_subscription_id: Optional[str] = None
+
+
+class CustomerPortalResponse(BaseModel):
+    """Customer portal session link for self-service subscription management."""
+
+    portal_url: str
 
 
 class AddonDetailResponse(BaseModel):
@@ -154,6 +161,8 @@ async def create_checkout(
             user_id=current_user.id,
             product_id=body.product_id.strip(),
             return_url=body.return_url,
+            customer_email=current_user.email,
+            customer_name=current_user.username,
         )
         return CheckoutResponse(
             session_id=result["session_id"],
@@ -164,6 +173,11 @@ async def create_checkout(
         if "not an allowed plan" in msg:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
+                detail=msg,
+            ) from e
+        if "no plan products configured" in msg.lower():
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail=msg,
             ) from e
         raise HTTPException(
@@ -218,6 +232,39 @@ async def get_subscription(
         current_period_end=sub.current_period_end.isoformat() if sub.current_period_end else None,
         dodo_subscription_id=sub.dodo_subscription_id,
     )
+
+
+@router.get("/portal", response_model=CustomerPortalResponse)
+async def get_customer_portal(
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_async_session),
+) -> CustomerPortalResponse:
+    """Return a Dodo customer portal URL for the current user to manage their subscription."""
+    if not is_checkout_configured():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Billing is not configured",
+        )
+    sub = await get_subscription_for_user(db, current_user.id)
+    if not sub or not sub.dodo_customer_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No subscription found for this user",
+        )
+    try:
+        result = await create_customer_portal_session(sub.dodo_customer_id)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(e),
+        ) from e
+    except Exception as e:
+        logger.exception("Customer portal session creation failed: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Failed to create customer portal session",
+        ) from e
+    return CustomerPortalResponse(portal_url=result["portal_url"])
 
 
 @router.post("/webhooks/dodo")

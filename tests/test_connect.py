@@ -182,6 +182,34 @@ async def test_exchange_expired_code(
 
 
 @pytest.mark.asyncio
+async def test_exchange_rejects_mcp_app_slug(
+    test_client,
+    test_db_session: AsyncSession,
+    sample_user_data: dict,
+):
+    """MCP agents must use MCP OAuth, not the sync connection-code flow."""
+    user_data = sample_user_data.copy()
+    user_data["password_hash"] = get_password_hash(user_data.pop("password"))
+    user = await create_user(test_db_session, user_data)
+    await test_db_session.commit()
+
+    code_row = await create_connection_code(test_db_session, user.id)
+    await test_db_session.commit()
+
+    r = test_client.post(
+        "/api/connect/exchange",
+        json={
+            "connection_code": code_row.code,
+            "app_slug": "mcp",
+            "device_name": "Agent",
+            "platform": "macOS",
+            "app_version": "1.0.0",
+        },
+    )
+    assert r.status_code == status.HTTP_400_BAD_REQUEST
+
+
+@pytest.mark.asyncio
 async def test_connect_then_refresh(
     test_client,
     test_db_session: AsyncSession,

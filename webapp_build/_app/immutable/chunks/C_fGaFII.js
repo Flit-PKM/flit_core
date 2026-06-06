@@ -1,0 +1,1 @@
+import"./ycV5UfX9.js";import{p as o,c as p,W as i,a as n,b as d,g as m,u as c}from"./D0ACidbZ.js";import{h}from"./Dw9Z6_Z3.js";import{h as f,e as l}from"./Bfexmfx4.js";function j(u,a){o(a,!0);let t=c(()=>l(a.data));f("65zpze",r=>{var s=i(),e=n(s);h(e,()=>'<script type="application/ld+json">'+m(t)+"<\/script>"),d(r,s)}),p()}export{j as J};

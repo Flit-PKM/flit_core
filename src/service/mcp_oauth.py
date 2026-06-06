@@ -334,12 +334,20 @@ async def exchange_authorization_code(
     ):
         raise AuthenticationError("Invalid code_verifier")
 
+    from flit_mcp.oauth.cimd import resolve_oauth_client
+
     auth_code.used_at = _naive(_utcnow())
+    client_name: str | None = None
+    client = await resolve_oauth_client(session, auth_code.client_id)
+    if client:
+        client_name = client.name
     return await _issue_mcp_tokens(
         session,
         user_id=auth_code.user_id,
         scopes=auth_code.scopes,
         resource=auth_code.resource,
+        client_id=auth_code.client_id,
+        client_name=client_name,
     )
 
 
@@ -349,6 +357,8 @@ async def _issue_mcp_tokens(
     user_id: int,
     scopes: str,
     resource: str | None = None,
+    client_id: str | None = None,
+    client_name: str | None = None,
 ) -> tuple[McpAccessToken, McpRefreshToken]:
     aud = canonical_mcp_resource()
     jti = secrets.token_urlsafe(16)
@@ -371,6 +381,8 @@ async def _issue_mcp_tokens(
         token=refresh_str,
         user_id=user_id,
         scopes=scopes,
+        client_id=client_id,
+        client_name=client_name,
         expires_at=refresh_expires,
         revoked_at=None,
         created_at=_naive(_utcnow()),
@@ -426,6 +438,8 @@ async def refresh_mcp_access_token(
         user_id=refresh_row.user_id,
         scopes=refresh_row.scopes,
         resource=resolved_resource,
+        client_id=refresh_row.client_id,
+        client_name=refresh_row.client_name,
     )
 
 

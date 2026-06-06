@@ -91,6 +91,7 @@ def augment_mcp_openapi(schema: dict[str, Any], app: FastAPI) -> None:
         ("mcp", "Model Context Protocol (JSON-RPC on POST /mcp)"),
         ("mcp-oauth", "MCP OAuth 2.0 authorization server"),
         ("mcp-api-keys", "User-managed MCP API keys"),
+        ("mcp-connections", "User-managed MCP OAuth sessions"),
         ("mcp-oauth-metadata", "OAuth and protected-resource metadata (RFC 9728)"),
     ):
         if tag_name not in tag_names:

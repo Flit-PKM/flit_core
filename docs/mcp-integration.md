@@ -34,6 +34,17 @@ Authorization: Bearer <token>
 
 Create keys with a main-app JWT at `POST /mcp/api-keys`. Pass the key as `Authorization: Bearer flit_mcp_…`.
 
+### Managing access (frontend / settings UI)
+
+| Endpoint | Purpose |
+|----------|---------|
+| `GET /mcp/connections` | List active MCP OAuth sessions (client name, scopes, expiry) |
+| `DELETE /mcp/connections/{id}` | Revoke an OAuth session (refresh + access tokens) |
+| `GET /mcp/api-keys` | List user-managed API keys (prefix only) |
+| `DELETE /mcp/api-keys/{id}` | Revoke an API key |
+
+All four require a main-app JWT (`Authorization: Bearer <jwt>`). Sync device pairing (`/api/connected-apps`) is separate and does not include MCP agents.
+
 ## Scopes and write tools
 
 Read-only tokens hide write tools from `tools/list` and block `tools/call` on mutations. Write tools include `create_note`, `update_note`, `append_to_note`, `delete_note`, category/relationship CRUD, and note–category linking.

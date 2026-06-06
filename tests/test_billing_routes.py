@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -68,11 +69,13 @@ async def test_get_plans_returns_plan_details_when_configured(test_client):
     assert data[1]["show_discounted_badge"] is True
 
 
-def _override_checkout_auth(user_id: int = 1):
+def _override_checkout_auth(user_id: int = 1, email: str = "user@example.com", username: str = "testuser"):
     """Override get_current_active_user so checkout route sees an authenticated user."""
     fake_user = MagicMock()
     fake_user.id = user_id
     fake_user.is_active = True
+    fake_user.email = email
+    fake_user.username = username
 
     async def override():
         return fake_user
@@ -146,9 +149,17 @@ async def test_checkout_success_passes_product_id_to_service(test_client):
     """POST /billing/checkout with product_id calls service with that product_id and return_url, returns 200."""
     _override_checkout_auth()
     try:
-        async def mock_create_checkout_session(user_id: int, product_id: str, return_url=None):
+        async def mock_create_checkout_session(
+            user_id: int,
+            product_id: str,
+            return_url=None,
+            customer_email=None,
+            customer_name=None,
+        ):
             assert product_id == "prod_chosen_plan"
             assert return_url == "https://app.example.com/success"
+            assert customer_email == "user@example.com"
+            assert customer_name == "testuser"
             return {"session_id": "sess_123", "checkout_url": "https://checkout.example.com/sess_123"}
 
         with patch("routes.billing.create_checkout_session", side_effect=mock_create_checkout_session):
@@ -239,3 +250,124 @@ async def test_billing_complete_success_returns_200(test_client):
     assert call_kwargs["user_id"] == 1
     assert call_kwargs["subscription_id"] == "sub_abc"
     assert call_kwargs["status"] == "active"
+
+
+@pytest.mark.asyncio
+async def test_billing_portal_requires_auth(test_client):
+    """GET /billing/portal without auth returns 401."""
+    response = test_client.get("/api/billing/portal")
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_billing_portal_no_subscription_returns_404(test_client):
+    """GET /billing/portal when user has no subscription returns 404."""
+    _override_checkout_auth()
+    try:
+        with patch("routes.billing.is_checkout_configured", return_value=True):
+            with patch("routes.billing.get_subscription_for_user", new=AsyncMock(return_value=None)):
+                response = test_client.get("/api/billing/portal")
+    finally:
+        _clear_checkout_auth()
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_billing_portal_success_returns_portal_url(test_client):
+    """GET /billing/portal returns portal_url when user has a subscription."""
+    _override_checkout_auth()
+    try:
+        fake_sub = MagicMock()
+        fake_sub.dodo_customer_id = "cus_abc"
+        mock_portal = AsyncMock(return_value={"portal_url": "https://portal.example.com/s/1"})
+        with patch("routes.billing.is_checkout_configured", return_value=True):
+            with patch("routes.billing.get_subscription_for_user", new=AsyncMock(return_value=fake_sub)):
+                with patch("routes.billing.create_customer_portal_session", mock_portal):
+                    response = test_client.get("/api/billing/portal")
+    finally:
+        _clear_checkout_auth()
+    assert response.status_code == 200
+    assert response.json()["portal_url"] == "https://portal.example.com/s/1"
+    mock_portal.assert_called_once_with("cus_abc")
+
+
+@pytest.mark.asyncio
+async def test_dodo_webhook_no_secret_returns_503(test_client):
+    """POST /billing/webhooks/dodo without webhook secret configured returns 503."""
+    with patch("routes.billing.settings") as mock_settings:
+        mock_settings.DODO_PAYMENTS_WEBHOOK_SECRET = None
+        response = test_client.post(
+            "/api/billing/webhooks/dodo",
+            content=b"{}",
+            headers={"Content-Type": "application/json"},
+        )
+    assert response.status_code == 503
+
+
+@pytest.mark.asyncio
+async def test_dodo_webhook_invalid_signature_returns_401(test_client):
+    """POST /billing/webhooks/dodo with bad signature returns 401."""
+    with patch("routes.billing.settings") as mock_settings:
+        mock_settings.DODO_PAYMENTS_WEBHOOK_SECRET = "whsec_test"
+        with patch("routes.billing.unwrap_webhook", side_effect=ValueError("bad sig")):
+            response = test_client.post(
+                "/api/billing/webhooks/dodo",
+                content=b'{"type":"subscription.active"}',
+                headers={
+                    "Content-Type": "application/json",
+                    "webhook-id": "wh_1",
+                    "webhook-signature": "bad",
+                    "webhook-timestamp": "123",
+                },
+            )
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_dodo_webhook_valid_event_returns_200(test_client):
+    """POST /billing/webhooks/dodo with valid signature processes event."""
+    event = {
+        "type": "subscription.active",
+        "data": {"subscription_id": "sub_1", "customer_id": "cus_1"},
+    }
+    with patch("routes.billing.settings") as mock_settings:
+        mock_settings.DODO_PAYMENTS_WEBHOOK_SECRET = "whsec_test"
+        with patch("routes.billing.unwrap_webhook", return_value=event):
+            with patch("routes.billing.try_claim_dodo_webhook_id", new=AsyncMock(return_value=True)):
+                with patch("routes.billing.handle_webhook_event", new=AsyncMock()) as mock_handle:
+                    response = test_client.post(
+                        "/api/billing/webhooks/dodo",
+                        content=json.dumps(event).encode(),
+                        headers={
+                            "Content-Type": "application/json",
+                            "webhook-id": "wh_valid_1",
+                            "webhook-signature": "sig",
+                            "webhook-timestamp": "123",
+                        },
+                    )
+    assert response.status_code == 200
+    assert response.json() == {"received": True}
+    mock_handle.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_dodo_webhook_duplicate_id_skips_processing(test_client):
+    """Duplicate webhook-id returns 200 without calling handle_webhook_event."""
+    event = {"type": "subscription.active", "data": {}}
+    with patch("routes.billing.settings") as mock_settings:
+        mock_settings.DODO_PAYMENTS_WEBHOOK_SECRET = "whsec_test"
+        with patch("routes.billing.unwrap_webhook", return_value=event):
+            with patch("routes.billing.try_claim_dodo_webhook_id", new=AsyncMock(return_value=False)):
+                with patch("routes.billing.handle_webhook_event", new=AsyncMock()) as mock_handle:
+                    response = test_client.post(
+                        "/api/billing/webhooks/dodo",
+                        content=json.dumps(event).encode(),
+                        headers={
+                            "Content-Type": "application/json",
+                            "webhook-id": "wh_dup_1",
+                            "webhook-signature": "sig",
+                            "webhook-timestamp": "123",
+                        },
+                    )
+    assert response.status_code == 200
+    mock_handle.assert_not_called()

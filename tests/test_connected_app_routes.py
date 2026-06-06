@@ -97,6 +97,53 @@ async def test_delete_connected_app_returns_body_and_revokes_tokens(
 
 
 @pytest.mark.asyncio
+async def test_mcp_connected_app_hidden_from_api(
+    test_client,
+    test_db_session: AsyncSession,
+    sample_user_data: dict,
+):
+    """Legacy app_slug=mcp rows are excluded from sync connected-apps API."""
+    user_data = sample_user_data.copy()
+    user_data["password_hash"] = get_password_hash(user_data.pop("password"))
+    user = await create_user(test_db_session, user_data)
+    await test_db_session.commit()
+
+    mcp_app = ConnectedApp(
+        user_id=user.id,
+        app_slug="mcp",
+        device_name="Legacy Agent",
+        platform="macOS",
+        app_version="1.0.0",
+        is_active=True,
+    )
+    test_db_session.add(mcp_app)
+    await test_db_session.flush()
+    mcp_app_id = mcp_app.id
+    await test_db_session.commit()
+
+    token = _login(test_client, sample_user_data["email"], sample_user_data["password"])
+
+    list_resp = test_client.get(
+        "/api/connected-apps",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert list_resp.status_code == status.HTTP_200_OK
+    assert all(item["app_slug"] != "mcp" for item in list_resp.json())
+
+    detail_resp = test_client.get(
+        f"/api/connected-apps/{mcp_app_id}",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert detail_resp.status_code == status.HTTP_404_NOT_FOUND
+
+    delete_resp = test_client.delete(
+        f"/api/connected-apps/{mcp_app_id}",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert delete_resp.status_code == status.HTTP_404_NOT_FOUND
+
+
+@pytest.mark.asyncio
 async def test_delete_connected_app_not_found(
     test_client,
     test_db_session: AsyncSession,

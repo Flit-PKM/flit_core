@@ -14,6 +14,12 @@ from models.oauth_refresh_token import OAuthRefreshToken
 
 logger = get_logger(__name__)
 
+SYNC_EXCLUDED_APP_SLUGS = frozenset({"mcp"})
+
+
+def _is_sync_connected_app(connected_app: ConnectedApp) -> bool:
+    return connected_app.app_slug not in SYNC_EXCLUDED_APP_SLUGS
+
 
 async def create_connected_app_from_exchange(
     session: AsyncSession,
@@ -49,7 +55,10 @@ async def get_user_connected_apps(
     """Get all connected apps for a user."""
     result = await session.execute(
         select(ConnectedApp)
-        .where(ConnectedApp.user_id == user_id)
+        .where(
+            ConnectedApp.user_id == user_id,
+            ConnectedApp.app_slug.not_in(SYNC_EXCLUDED_APP_SLUGS),
+        )
         .order_by(ConnectedApp.created_at.desc())
     )
     return list(result.scalars().all())
@@ -67,7 +76,10 @@ async def get_connected_app(
             ConnectedApp.user_id == user_id,
         )
     )
-    return result.scalar_one_or_none()
+    row = result.scalar_one_or_none()
+    if row and not _is_sync_connected_app(row):
+        return None
+    return row
 
 
 async def update_connected_app(

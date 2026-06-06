@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import time
+from datetime import datetime
 from typing import Any, Literal, Optional
 
 from fastapi import HTTPException, status
@@ -127,8 +128,8 @@ def get_allowed_product_ids() -> list[str]:
 
 
 def is_checkout_configured() -> bool:
-    """True if Dodo Payments API key is set (sufficient to create checkout; product_id comes from client)."""
-    return bool(settings.DODO_PAYMENTS_API_KEY)
+    """True if Dodo Payments API key and at least one plan product ID are set."""
+    return is_plans_configured()
 
 
 def _price_to_dict(price: Any) -> dict[str, Any]:
@@ -290,7 +291,7 @@ async def get_plans() -> list[dict[str, Any]]:
         plans_json = json.dumps(plans, default=str)
     except (TypeError, ValueError):
         plans_json = str(plans)
-    logger.info("Plans loaded (for debugging): %s", plans_json)
+    logger.debug("Plans loaded: %s", plans_json)
 
     return plans
 
@@ -299,6 +300,8 @@ async def create_checkout_session(
     user_id: int,
     product_id: str,
     return_url: Optional[str] = None,
+    customer_email: Optional[str] = None,
+    customer_name: Optional[str] = None,
 ) -> dict[str, str]:
     """
     Create a Dodo Checkout Session for the given plan product.
@@ -307,7 +310,9 @@ async def create_checkout_session(
     if not is_checkout_configured():
         raise ValueError("Dodo Payments is not configured")
     allowed = get_allowed_product_ids()
-    if allowed and product_id not in allowed:
+    if not allowed:
+        raise ValueError("No plan products configured for checkout")
+    if product_id not in allowed:
         raise ValueError("product_id is not an allowed plan")
 
     def _create() -> dict[str, str]:
@@ -319,6 +324,13 @@ async def create_checkout_session(
             "product_cart": product_cart,
             "metadata": {"user_id": str(user_id)},
         }
+        customer: dict[str, str] = {}
+        if customer_email and customer_email.strip():
+            customer["email"] = customer_email.strip()
+        if customer_name and customer_name.strip():
+            customer["name"] = customer_name.strip()
+        if customer:
+            payload["customer"] = customer
         if return_url:
             payload["return_url"] = return_url
         resp = client.checkout_sessions.create(**payload)
@@ -330,6 +342,22 @@ async def create_checkout_session(
     return await asyncio.to_thread(_create)
 
 
+async def create_customer_portal_session(customer_id: str) -> dict[str, str]:
+    """Create a Dodo customer portal session link for self-service subscription management."""
+    if not is_checkout_configured():
+        raise ValueError("Dodo Payments is not configured")
+    cid = (customer_id or "").strip()
+    if not cid:
+        raise ValueError("customer_id is required")
+
+    def _create() -> dict[str, str]:
+        client = _get_dodo_client()
+        resp = client.customers.customer_portal.create(cid)
+        return {"portal_url": resp.link or ""}
+
+    return await asyncio.to_thread(_create)
+
+
 class BillingCompleteError(Exception):
     """Raised by complete_subscription with (status_code, detail)."""
 
@@ -337,6 +365,98 @@ class BillingCompleteError(Exception):
         self.status_code = status_code
         self.detail = detail
         super().__init__(detail)
+
+
+def _parse_period_end(raw: Any) -> Optional[datetime]:
+    """Parse Dodo next_billing_date or current_period_end into a datetime."""
+    if not raw:
+        return None
+    if isinstance(raw, str):
+        try:
+            return datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    if hasattr(raw, "isoformat"):
+        return raw
+    return None
+
+
+def _period_end_from_obj(obj: dict[str, Any]) -> Optional[datetime]:
+    """Extract period end from a subscription payload (webhook or API-shaped dict)."""
+    for key in ("next_billing_date", "current_period_end"):
+        if key in obj and obj[key]:
+            parsed = _parse_period_end(obj[key])
+            if parsed is not None:
+                return parsed
+    return None
+
+
+def _extract_product_id(obj: dict[str, Any]) -> Optional[str]:
+    raw_pid = obj.get("product_id")
+    if raw_pid and isinstance(raw_pid, str):
+        product_id = raw_pid.strip()
+        if product_id:
+            return product_id
+    items = obj.get("items")
+    if items and len(items) > 0:
+        first = items[0]
+        if isinstance(first, dict):
+            raw_pid = first.get("product_id") or first.get("product")
+            if raw_pid and isinstance(raw_pid, str):
+                product_id = raw_pid.strip()
+                if product_id:
+                    return product_id
+    return None
+
+
+async def _upsert_plan_subscription(
+    db: AsyncSession,
+    *,
+    user_id: int,
+    dodo_subscription_id: str,
+    dodo_customer_id: str,
+    status: str,
+    product_id: Optional[str] = None,
+    current_period_end: Optional[datetime] = None,
+) -> PlanSubscription:
+    """
+    Insert or update the user's PlanSubscription row.
+    Looks up by dodo_subscription_id first, then by user_id (re-subscription).
+    """
+    result = await db.execute(
+        select(PlanSubscription).where(
+            PlanSubscription.dodo_subscription_id == dodo_subscription_id
+        )
+    )
+    row = result.scalar_one_or_none()
+    if row is None:
+        result = await db.execute(
+            select(PlanSubscription).where(PlanSubscription.user_id == user_id)
+        )
+        row = result.scalar_one_or_none()
+
+    if row:
+        row.user_id = user_id
+        row.dodo_subscription_id = dodo_subscription_id
+        row.status = status
+        if current_period_end is not None:
+            row.current_period_end = current_period_end
+        if dodo_customer_id:
+            row.dodo_customer_id = dodo_customer_id
+        if product_id is not None:
+            row.product_id = product_id
+        return row
+
+    row = PlanSubscription(
+        user_id=user_id,
+        dodo_subscription_id=dodo_subscription_id,
+        dodo_customer_id=dodo_customer_id or "",
+        status=status,
+        product_id=product_id,
+        current_period_end=current_period_end,
+    )
+    db.add(row)
+    return row
 
 
 async def complete_subscription(
@@ -407,41 +527,19 @@ async def complete_subscription(
     if hasattr(sub, "product_id") and sub.product_id:
         product_id = str(sub.product_id).strip() or None
 
-    current_period_end = None
-    if hasattr(sub, "next_billing_date") and sub.next_billing_date:
-        raw = sub.next_billing_date
-        from datetime import datetime
-        if isinstance(raw, str):
-            try:
-                current_period_end = datetime.fromisoformat(raw.replace("Z", "+00:00"))
-            except ValueError:
-                pass
-        elif hasattr(raw, "isoformat"):
-            current_period_end = raw
-
-    result = await db.execute(
-        select(PlanSubscription).where(
-            PlanSubscription.dodo_subscription_id == subscription_id
-        )
+    current_period_end = _period_end_from_obj(
+        {"next_billing_date": getattr(sub, "next_billing_date", None)}
     )
-    row = result.scalar_one_or_none()
-    if row:
-        row.status = dodo_status_str
-        if current_period_end is not None:
-            row.current_period_end = current_period_end
-        row.dodo_customer_id = customer_id or row.dodo_customer_id
-        if product_id is not None:
-            row.product_id = product_id
-    else:
-        row = PlanSubscription(
-            user_id=user_id,
-            dodo_subscription_id=subscription_id,
-            dodo_customer_id=customer_id or "",
-            status=dodo_status_str,
-            product_id=product_id,
-            current_period_end=current_period_end,
-        )
-        db.add(row)
+
+    await _upsert_plan_subscription(
+        db,
+        user_id=user_id,
+        dodo_subscription_id=subscription_id,
+        dodo_customer_id=customer_id,
+        status=dodo_status_str,
+        product_id=product_id,
+        current_period_end=current_period_end,
+    )
     logger.info("Completed subscription %s for user_id=%s status=%s", subscription_id, user_id, dodo_status_str)
 
 
@@ -496,8 +594,6 @@ async def handle_webhook_event(db: AsyncSession, event: dict[str, Any]) -> None:
 
     if event_type.startswith("subscription."):
         await _handle_subscription_event(db, event_type, data)
-    elif event_type in ("payment.succeeded", "payment.failed"):
-        await _handle_payment_event(db, event_type, data)
     else:
         logger.debug("Unhandled webhook event type: %s", event_type)
 
@@ -539,95 +635,38 @@ async def _handle_subscription_event(
             logger.warning("Subscription event has no user_id in metadata and no existing row: %s", sub_id)
             return
 
-    current_period_end = None
-    if "current_period_end" in obj:
-        raw = obj["current_period_end"]
-        if raw:
-            from datetime import datetime
-            if isinstance(raw, str):
-                try:
-                    current_period_end = datetime.fromisoformat(raw.replace("Z", "+00:00"))
-                except ValueError:
-                    pass
-            elif hasattr(raw, "isoformat"):
-                current_period_end = raw
+    current_period_end = _period_end_from_obj(obj)
 
-    product_id = None
-    raw_pid = obj.get("product_id")
-    if raw_pid and isinstance(raw_pid, str):
-        product_id = raw_pid.strip() or None
-    if product_id is None and obj.get("items") and len(obj["items"]) > 0:
-        first = obj["items"][0]
-        if isinstance(first, dict):
-            raw_pid = first.get("product_id") or first.get("product")
-            if raw_pid and isinstance(raw_pid, str):
-                product_id = raw_pid.strip() or None
+    product_id = _extract_product_id(obj)
     if product_id is None and obj.get("items"):
         logger.debug("Subscription %s webhook has no product_id in common paths", sub_id)
 
-    result = await db.execute(
-        select(PlanSubscription).where(
-            PlanSubscription.dodo_subscription_id == sub_id
-        )
+    await _upsert_plan_subscription(
+        db,
+        user_id=user_id,
+        dodo_subscription_id=sub_id,
+        dodo_customer_id=customer_id or "",
+        status=status,
+        product_id=product_id,
+        current_period_end=current_period_end,
     )
-    row = result.scalar_one_or_none()
-    if row:
-        row.status = status
-        if current_period_end is not None:
-            row.current_period_end = current_period_end
-        row.dodo_customer_id = customer_id or row.dodo_customer_id
-        if product_id is not None:
-            row.product_id = product_id
-    else:
-        row = PlanSubscription(
-            user_id=user_id,
-            dodo_subscription_id=sub_id,
-            dodo_customer_id=customer_id or "",
-            status=status,
-            product_id=product_id,
-            current_period_end=current_period_end,
-        )
-        db.add(row)
     logger.info("Updated PlanSubscription %s for user_id=%s status=%s", sub_id, user_id, status)
 
 
 def _map_subscription_status(event_type: str, status: Optional[str]) -> str:
-    """Map webhook event type and optional status to our status string."""
-    if event_type == "subscription.active" or event_type == "subscription.renewed":
+    """Map webhook event type and optional status to Dodo's canonical status string."""
+    if event_type in ("subscription.active", "subscription.renewed"):
         return "active"
-    if event_type == "subscription.created":
-        return status or "active"
-    if event_type == "subscription.updated":
-        return status or "active"
     if event_type == "subscription.on_hold":
         return "on_hold"
     if event_type == "subscription.failed":
         return "failed"
     if event_type in ("subscription.canceled", "subscription.cancelled"):
-        return "canceled"
+        return "cancelled"
     if event_type == "subscription.expired":
         return "expired"
-    return status or "unknown"
-
-
-async def _handle_payment_event(
-    db: AsyncSession,
-    event_type: str,
-    data: dict[str, Any],
-) -> None:
-    """Optionally update subscription or link payment to subscription."""
-    obj = data
-    subscription_id = obj.get("subscription_id")
-    if not subscription_id:
-        return
-    result = await db.execute(
-        select(PlanSubscription).where(
-            PlanSubscription.dodo_subscription_id == subscription_id
-        )
-    )
-    row = result.scalar_one_or_none()
-    if not row:
-        return
-    if event_type == "payment.failed":
-        row.status = "past_due"
-        logger.info("Marked PlanSubscription %s past_due after payment.failed", subscription_id)
+    if event_type in ("subscription.updated", "subscription.plan_changed"):
+        return (status or "active").strip()
+    if status:
+        return str(status).strip()
+    return "unknown"

@@ -123,13 +123,18 @@ async def test_create_checkout_session_single_product_cart():
 
     with (
         patch("service.billing.is_checkout_configured", return_value=True),
-        patch("service.billing.get_allowed_product_ids", return_value=[]),
+        patch(
+            "service.billing.get_allowed_product_ids",
+            return_value=["prod_annual_core_ai_enc"],
+        ),
         patch("service.billing._get_dodo_client", return_value=mock_client),
     ):
         result = await billing.create_checkout_session(
             user_id=1,
             product_id="prod_annual_core_ai_enc",
             return_url="https://app.example.com/success",
+            customer_email="user@example.com",
+            customer_name="Test User",
         )
 
     assert result["session_id"] == "sess_xyz"
@@ -143,6 +148,21 @@ async def test_create_checkout_session_single_product_cart():
     assert "addons" not in product_cart[0]
     assert call_kwargs["metadata"] == {"user_id": "1"}
     assert call_kwargs["return_url"] == "https://app.example.com/success"
+    assert call_kwargs["customer"] == {
+        "email": "user@example.com",
+        "name": "Test User",
+    }
+
+
+@pytest.mark.asyncio
+async def test_create_checkout_session_rejects_empty_allowlist():
+    """create_checkout_session raises ValueError when no plan products are configured."""
+    with (
+        patch("service.billing.is_checkout_configured", return_value=True),
+        patch("service.billing.get_allowed_product_ids", return_value=[]),
+    ):
+        with pytest.raises(ValueError, match="No plan products configured"):
+            await billing.create_checkout_session(user_id=1, product_id="prod_any")
 
 
 @pytest.mark.asyncio
@@ -174,9 +194,9 @@ async def test_handle_webhook_subscription_event_sets_product_id(
     await test_db_session.commit()
 
     event = {
-        "type": "subscription.created",
+        "type": "subscription.active",
         "data": {
-            "id": "sub_dodo_xyz",
+            "subscription_id": "sub_dodo_xyz",
             "customer_id": "cust_abc",
             "metadata": {"user_id": str(user.id)},
             "product_id": "prod_monthly_core_ai_enc",
@@ -417,3 +437,176 @@ def test_health_response_includes_x_request_id(test_client):
     # Health may be 200 or 503 when global engine cannot reach D1; header is always set.
     rid = r.headers.get("x-request-id")
     assert rid and len(rid) >= 8
+
+
+@pytest.mark.asyncio
+async def test_complete_subscription_resubscribe_updates_existing_row(
+    test_db_session: AsyncSession,
+    sample_user_data: dict,
+):
+    """Re-subscription with a new dodo_subscription_id updates the existing user row."""
+    from auth.password import get_password_hash
+    from service.user import create_user
+
+    data = sample_user_data.copy()
+    data["password_hash"] = get_password_hash(data.pop("password"))
+    user = await create_user(test_db_session, data)
+    await test_db_session.commit()
+
+    existing = PlanSubscription(
+        user_id=user.id,
+        dodo_subscription_id="sub_old_cancelled",
+        dodo_customer_id="cust_old",
+        status="cancelled",
+        product_id="prod_monthly",
+    )
+    test_db_session.add(existing)
+    await test_db_session.commit()
+
+    mock_sub = _make_dodo_subscription(
+        subscription_id="sub_new_resub",
+        status="active",
+        metadata={"user_id": str(user.id)},
+        customer_id="cust_new",
+        product_id="prod_annual",
+    )
+    mock_client = MagicMock()
+    mock_client.subscriptions.retrieve.return_value = mock_sub
+
+    with (
+        patch("service.billing.is_checkout_configured", return_value=True),
+        patch("service.billing._get_dodo_client", return_value=mock_client),
+    ):
+        await billing.complete_subscription(
+            db=test_db_session,
+            user_id=user.id,
+            subscription_id="sub_new_resub",
+            status="active",
+        )
+    await test_db_session.commit()
+
+    result = await test_db_session.execute(
+        select(PlanSubscription).where(PlanSubscription.user_id == user.id)
+    )
+    rows = result.scalars().all()
+    assert len(rows) == 1
+    row = rows[0]
+    assert row.dodo_subscription_id == "sub_new_resub"
+    assert row.status == "active"
+    assert row.dodo_customer_id == "cust_new"
+    assert row.product_id == "prod_annual"
+
+
+@pytest.mark.asyncio
+async def test_handle_webhook_resubscribe_updates_existing_row(
+    test_db_session: AsyncSession,
+    sample_user_data: dict,
+):
+    """Webhook for a new subscription id updates the existing PlanSubscription row for the user."""
+    from auth.password import get_password_hash
+    from service.user import create_user
+
+    data = sample_user_data.copy()
+    data["password_hash"] = get_password_hash(data.pop("password"))
+    user = await create_user(test_db_session, data)
+    await test_db_session.commit()
+
+    existing = PlanSubscription(
+        user_id=user.id,
+        dodo_subscription_id="sub_old",
+        dodo_customer_id="cust_old",
+        status="cancelled",
+    )
+    test_db_session.add(existing)
+    await test_db_session.commit()
+
+    event = {
+        "type": "subscription.active",
+        "data": {
+            "subscription_id": "sub_new",
+            "customer_id": "cust_new",
+            "metadata": {"user_id": str(user.id)},
+            "product_id": "prod_annual",
+            "next_billing_date": "2026-07-01T00:00:00Z",
+        },
+    }
+    await billing.handle_webhook_event(test_db_session, event)
+    await test_db_session.commit()
+
+    result = await test_db_session.execute(
+        select(PlanSubscription).where(PlanSubscription.user_id == user.id)
+    )
+    rows = result.scalars().all()
+    assert len(rows) == 1
+    row = rows[0]
+    assert row.dodo_subscription_id == "sub_new"
+    assert row.status == "active"
+    assert row.current_period_end is not None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("event_type", "payload_status", "expected_status"),
+    [
+        ("subscription.active", None, "active"),
+        ("subscription.on_hold", None, "on_hold"),
+        ("subscription.cancelled", None, "cancelled"),
+        ("subscription.expired", None, "expired"),
+        ("subscription.updated", "pending", "pending"),
+        ("subscription.plan_changed", "active", "active"),
+    ],
+)
+async def test_handle_webhook_subscription_lifecycle_statuses(
+    test_db_session: AsyncSession,
+    sample_user_data: dict,
+    event_type: str,
+    payload_status: str | None,
+    expected_status: str,
+):
+    """Webhook handler stores Dodo canonical subscription statuses."""
+    from auth.password import get_password_hash
+    from service.user import create_user
+
+    data = sample_user_data.copy()
+    data["password_hash"] = get_password_hash(data.pop("password"))
+    user = await create_user(test_db_session, data)
+    await test_db_session.commit()
+
+    payload: dict = {
+        "subscription_id": f"sub_{event_type.replace('.', '_')}",
+        "customer_id": "cust_1",
+        "metadata": {"user_id": str(user.id)},
+    }
+    if payload_status is not None:
+        payload["status"] = payload_status
+
+    await billing.handle_webhook_event(
+        test_db_session,
+        {"type": event_type, "data": payload},
+    )
+    await test_db_session.commit()
+
+    result = await test_db_session.execute(
+        select(PlanSubscription).where(PlanSubscription.user_id == user.id)
+    )
+    row = result.scalar_one_or_none()
+    assert row is not None
+    assert row.status == expected_status
+
+
+@pytest.mark.asyncio
+async def test_create_customer_portal_session_returns_link():
+    """create_customer_portal_session returns portal_url from Dodo."""
+    mock_resp = MagicMock()
+    mock_resp.link = "https://portal.example.com/session/abc"
+    mock_client = MagicMock()
+    mock_client.customers.customer_portal.create.return_value = mock_resp
+
+    with (
+        patch("service.billing.is_checkout_configured", return_value=True),
+        patch("service.billing._get_dodo_client", return_value=mock_client),
+    ):
+        result = await billing.create_customer_portal_session("cus_123")
+
+    assert result["portal_url"] == "https://portal.example.com/session/abc"
+    mock_client.customers.customer_portal.create.assert_called_once_with("cus_123")

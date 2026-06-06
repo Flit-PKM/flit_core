@@ -1,6 +1,6 @@
 {
-	"name": "Flit Core",
-	"short_name": "Flit",
+	"name": "Flit Web",
+	"short_name": "Flit Web",
 	"start_url": "/",
 	"display": "standalone",
 	"background_color": "#0b0f14",

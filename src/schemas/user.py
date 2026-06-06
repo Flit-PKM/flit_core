@@ -111,7 +111,7 @@ class UserUpdate(BaseModel):
 class UserSubscriptionRead(BaseModel):
     """Subscription chosen by the user (at most one per user)."""
 
-    status: Optional[str] = Field(None, description="Subscription status (e.g. active, canceled)")
+    status: Optional[str] = Field(None, description="Subscription status (e.g. active, cancelled)")
     current_period_end: Optional[str] = Field(None, description="End of current period (ISO 8601)")
     dodo_subscription_id: Optional[str] = Field(None, description="Dodo subscription ID")
 
