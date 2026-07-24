@@ -90,6 +90,17 @@ async def activate_code(
     access_code.activated_by = user_id
     await db.flush()
     await db.refresh(grant)
+    from service.admin_webhook import EVENT_ACCESS_CODE_ACTIVATED, emit_admin_event
+
+    await emit_admin_event(
+        db,
+        EVENT_ACCESS_CODE_ACTIVATED,
+        {
+            "user_id": user_id,
+            "access_code_id": access_code.id,
+            "period_weeks": access_code.period_weeks,
+        },
+    )
     return grant
 
 

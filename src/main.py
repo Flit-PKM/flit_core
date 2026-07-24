@@ -24,6 +24,7 @@ class SpaStaticFiles(StaticFiles):
         return full_path, stat_result
 
 from routes.admin import router as admin_router
+from routes.admin_webhook import router as admin_webhook_router
 from routes.access_code import router as access_code_router
 from routes.user import router as user_router, current_user_router
 from routes.auth import router as auth_router
@@ -152,6 +153,18 @@ async def _app_exception_handler(request: Request, exc: BaseAppException) -> JSO
     if status_code == status.HTTP_500_INTERNAL_SERVER_ERROR and settings.ENVIRONMENT == "production":
         logger.exception("Unhandled BaseAppException (detail hidden in response)")
         detail = "Internal server error"
+    if status_code >= 500:
+        try:
+            from service.admin_webhook import emit_error_unhandled_best_effort
+
+            await emit_error_unhandled_best_effort(
+                method=request.method,
+                path=request.url.path,
+                exception_type=type(exc).__name__,
+                request_id=getattr(request.state, "request_id", None),
+            )
+        except Exception:
+            logger.exception("Failed scheduling error.unhandled webhook")
     return JSONResponse(
         status_code=status_code,
         content={"detail": detail},
@@ -189,6 +202,17 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 @app.exception_handler(BaseAppException)
 async def base_app_exception_handler(request: Request, exc: BaseAppException):
     """Handle any other BaseAppException exceptions (fallback when not in mapping)."""
+    try:
+        from service.admin_webhook import emit_error_unhandled_best_effort
+
+        await emit_error_unhandled_best_effort(
+            method=request.method,
+            path=request.url.path,
+            exception_type=type(exc).__name__,
+            request_id=getattr(request.state, "request_id", None),
+        )
+    except Exception:
+        logger.exception("Failed scheduling error.unhandled webhook")
     if settings.ENVIRONMENT == "production":
         logger.exception("BaseAppException (detail hidden in response)")
         return JSONResponse(
@@ -219,6 +243,7 @@ app.add_middleware(RequestLoggingMiddleware)
 
 app.include_router(auth_router, prefix="/api")
 app.include_router(admin_router, prefix="/api")
+app.include_router(admin_webhook_router, prefix="/api")
 app.include_router(access_code_router, prefix="/api")
 app.include_router(current_user_router, prefix="/api")
 app.include_router(user_router, prefix="/api")

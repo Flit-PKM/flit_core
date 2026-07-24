@@ -24,6 +24,14 @@ async def create_feedback(
     await db.flush()
     await db.refresh(feedback)
     logger.info(f"Feedback created: {feedback.id}")
+    from service.admin_webhook import EVENT_FEEDBACK_CREATED, emit_admin_event
+
+    preview = content if len(content) <= 200 else content[:197] + "…"
+    await emit_admin_event(
+        db,
+        EVENT_FEEDBACK_CREATED,
+        {"feedback_id": feedback.id, "content_preview": preview},
+    )
     return feedback
 
 

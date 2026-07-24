@@ -76,6 +76,12 @@ def test_client(test_db_session: AsyncSession) -> TestClient:
         try:
             yield test_db_session
             await test_db_session.commit()
+            pending = test_db_session.info.pop("admin_webhook_events", None)
+            if pending:
+                from service.admin_webhook import dispatch_pending_admin_webhooks
+
+                # Await delivery in tests so httpx mocks see the POST before assertions.
+                await dispatch_pending_admin_webhooks(pending)
         except Exception:
             await test_db_session.rollback()
             raise

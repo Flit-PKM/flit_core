@@ -87,4 +87,23 @@ async def log_exceptions_middleware(request: Request, call_next):
             str(e),
             exc_info=True,
         )
+        # Domain/HTTP errors have their own handlers; only notify on unexpected failures.
+        from exceptions import BaseAppException
+        from fastapi.exceptions import RequestValidationError
+        from starlette.exceptions import HTTPException as StarletteHTTPException
+
+        if not isinstance(
+            e, (BaseAppException, RequestValidationError, StarletteHTTPException)
+        ):
+            try:
+                from service.admin_webhook import emit_error_unhandled_best_effort
+
+                await emit_error_unhandled_best_effort(
+                    method=request.method,
+                    path=request.url.path,
+                    exception_type=type(e).__name__,
+                    request_id=rid,
+                )
+            except Exception:
+                logger.exception("Failed scheduling error.unhandled webhook")
         raise

@@ -541,6 +541,23 @@ async def complete_subscription(
         current_period_end=current_period_end,
     )
     logger.info("Completed subscription %s for user_id=%s status=%s", subscription_id, user_id, dodo_status_str)
+    from service.admin_webhook import (
+        emit_admin_event,
+        subscription_admin_event_from_status,
+    )
+
+    admin_event = subscription_admin_event_from_status(dodo_status_str)
+    if admin_event:
+        await emit_admin_event(
+            db,
+            admin_event,
+            {
+                "user_id": user_id,
+                "dodo_subscription_id": subscription_id,
+                "status": dodo_status_str,
+                "product_id": product_id,
+            },
+        )
 
 
 async def get_subscription_for_user(
@@ -651,6 +668,27 @@ async def _handle_subscription_event(
         current_period_end=current_period_end,
     )
     logger.info("Updated PlanSubscription %s for user_id=%s status=%s", sub_id, user_id, status)
+    from service.admin_webhook import (
+        emit_admin_event,
+        subscription_admin_event_from_dodo,
+        subscription_admin_event_from_status,
+    )
+
+    admin_event = subscription_admin_event_from_dodo(event_type)
+    if admin_event is None and event_type == "subscription.updated":
+        admin_event = subscription_admin_event_from_status(status)
+    if admin_event:
+        await emit_admin_event(
+            db,
+            admin_event,
+            {
+                "user_id": user_id,
+                "dodo_subscription_id": sub_id,
+                "status": status,
+                "product_id": product_id,
+                "dodo_event_type": event_type,
+            },
+        )
 
 
 def _map_subscription_status(event_type: str, status: Optional[str]) -> str:

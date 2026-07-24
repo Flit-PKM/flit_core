@@ -1,4 +1,5 @@
 from .access_code import AccessCode, AccessCodeGrant
+from .admin_webhook import AdminWebhook
 from .base import Base
 from .category import Category
 from .chunk import Chunk

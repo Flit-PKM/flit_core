@@ -40,6 +40,17 @@ async def create_user(
     await session.flush()
     await session.refresh(db_user)
     logger.info(f"User created successfully: {db_user.id}")
+    from service.admin_webhook import EVENT_USER_SIGNUP, emit_admin_event
+
+    await emit_admin_event(
+        session,
+        EVENT_USER_SIGNUP,
+        {
+            "user_id": db_user.id,
+            "email": db_user.email,
+            "username": db_user.username,
+        },
+    )
     return db_user
 
 async def get_user(session: AsyncSession, user_id: int) -> User:
