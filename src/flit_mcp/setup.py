@@ -24,7 +24,7 @@ def register_mcp_openapi(app: FastAPI) -> None:
 
     app.include_router(catalog_router)
     _catalog_registered = True
-    logger.info("MCP catalog mounted at GET /mcp/catalog")
+    logger.info("MCP catalog mounted at GET /mcp/catalog and GET /mcp/docs")
 
 
 def register_mcp(app: FastAPI) -> None:

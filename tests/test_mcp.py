@@ -450,13 +450,135 @@ async def test_openapi_includes_mcp_protocol_when_enabled(mcp_enabled, test_clie
 
 
 @pytest.mark.asyncio
-async def test_mcp_catalog_endpoint(test_client):
+async def test_mcp_catalog_endpoint(test_client, monkeypatch):
+    monkeypatch.setattr(settings, "PUBLIC_BASE_URL", "http://testserver")
     response = test_client.get("/mcp/catalog")
     assert response.status_code == 200
     data = response.json()
     assert "tools" in data
     assert len(data["tools"]) >= 1
     assert any(t["name"] == "list_notes" for t in data["tools"])
+    assert any(t["name"] == "search_tools" for t in data["tools"])
+
+    server = data["server"]
+    assert server["name"] == "Flit Core MCP"
+    assert server["version"]
+    assert server["capabilities"]["search_tools"] is True
+    assert server["capabilities"]["max_batch_size"] == 50
+    assert "full" in server["capabilities"]["return_modes"]
+    assert server["base_url"] == "http://testserver/mcp"
+
+    assert "notes" in data["groups"]
+    assert "list_notes" in data["groups"]["notes"]
+    assert "discovery" in data["groups"]
+    assert "search_tools" in data["groups"]["discovery"]
+
+    list_notes = next(t for t in data["tools"] if t["name"] == "list_notes")
+    assert list_notes["category"] == "notes"
+    assert "discovery" in list_notes["tags"]
+    assert list_notes["scopes"] == "read"
+    assert list_notes["short_description"]
+    assert list_notes["examples"]
+    assert list_notes["input_schema"]
+    assert "properties" in list_notes["input_schema"]
+
+    assert data["resources"]
+    assert all(r.get("mime_type") == "application/json" for r in data["resources"])
+
+
+@pytest.mark.asyncio
+async def test_mcp_catalog_summary_and_filters(test_client):
+    summary = test_client.get("/mcp/catalog", params={"detail": "summary"})
+    assert summary.status_code == 200
+    summary_data = summary.json()
+    assert summary_data["tools"]
+    assert all(t.get("input_schema") is None for t in summary_data["tools"])
+
+    notes = test_client.get("/mcp/catalog", params={"group": "notes"})
+    assert notes.status_code == 200
+    notes_data = notes.json()
+    assert notes_data["tools"]
+    assert all(t["category"] == "notes" for t in notes_data["tools"])
+    assert set(notes_data["groups"].keys()) <= {"notes"}
+
+    tagged = test_client.get("/mcp/catalog", params={"tag": "graph"})
+    assert tagged.status_code == 200
+    tagged_data = tagged.json()
+    assert tagged_data["tools"]
+    assert all("graph" in t["tags"] for t in tagged_data["tools"])
+    assert any(t["name"] == "query_graph" for t in tagged_data["tools"])
+
+
+@pytest.mark.asyncio
+async def test_mcp_docs_endpoint(test_client):
+    response = test_client.get("/mcp/docs")
+    assert response.status_code == 200
+    assert "text/markdown" in response.headers.get("content-type", "")
+    assert "Flit MCP Integration Guide" in response.text
+    assert "search_tools" in response.text
+
+
+@pytest.mark.asyncio
+async def test_search_tools_ranks_and_respects_scope(
+    mcp_enabled, test_client, test_db_session, sample_user_data
+):
+    from flit_mcp.tool_access import MCP_WRITE_TOOL_NAMES
+
+    user_data = sample_user_data.copy()
+    user_data["password_hash"] = get_password_hash(user_data.pop("password"))
+    user = await create_user(test_db_session, user_data)
+    await test_db_session.commit()
+
+    _, read_key = await create_mcp_api_key(
+        test_db_session,
+        user_id=user.id,
+        name="search-read",
+        scope="read",
+    )
+    _, write_key = await create_mcp_api_key(
+        test_db_session,
+        user_id=user.id,
+        name="search-write",
+        scope="read write",
+    )
+    await test_db_session.commit()
+
+    write_data = _tools_call(
+        test_client,
+        write_key,
+        "search_tools",
+        {"query": "create note", "limit": 10},
+    )
+    assert "result" in write_data
+    write_hits = json.loads(write_data["result"]["content"][0]["text"])
+    assert isinstance(write_hits, list)
+    assert write_hits
+    assert write_hits[0]["name"] == "create_note"
+    assert write_hits[0]["category"] == "notes"
+    assert "input_schema" not in write_hits[0]
+    assert any(h["name"] in MCP_WRITE_TOOL_NAMES for h in write_hits)
+
+    read_data = _tools_call(
+        test_client,
+        read_key,
+        "search_tools",
+        {"query": "create note", "limit": 10},
+    )
+    assert "result" in read_data
+    read_hits = json.loads(read_data["result"]["content"][0]["text"])
+    assert all(h["name"] not in MCP_WRITE_TOOL_NAMES for h in read_hits)
+
+    graph_data = _tools_call(
+        test_client,
+        read_key,
+        "search_tools",
+        {"query": "graph relationships", "group": "relationships", "limit": 5},
+    )
+    assert "result" in graph_data
+    graph_hits = json.loads(graph_data["result"]["content"][0]["text"])
+    assert graph_hits
+    assert all(h["category"] == "relationships" for h in graph_hits)
+    assert any(h["name"] == "query_graph" for h in graph_hits)
 
 
 @pytest.mark.asyncio

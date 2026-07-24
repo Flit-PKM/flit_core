@@ -10,9 +10,14 @@ When `MCP_ENABLED=true`, Flit exposes a JSON-RPC 2.0 MCP server at `POST /mcp` w
 
 | Endpoint | Purpose |
 |----------|---------|
-| `GET /mcp/catalog` | Machine-readable list of tools and `flit://` resources with `inputSchema` |
+| `GET /mcp/catalog` | Machine-readable tools + `flit://` resources (server metadata, groups, tags, examples) |
+| `GET /mcp/catalog?detail=summary` | Lightweight catalog: names, descriptions, tags — omits `input_schema` |
+| `GET /mcp/catalog?group=notes` | Filter catalog tools by category |
+| `GET /mcp/catalog?tag=graph` | Filter catalog tools by tag |
+| `GET /mcp/docs` | This integration guide as markdown |
 | `GET /openapi.json` | Full OpenAPI spec; includes `x-mcp-tools` when `MCP_OPENAPI_INCLUDE=true` |
 | `POST /mcp` | JSON-RPC: `tools/list`, `tools/call`, `resources/list`, `resources/read` |
+| `search_tools` (tool) | Progressive discovery: keyword search returning short tool summaries |
 
 Required header for MCP requests:
 
@@ -20,6 +25,19 @@ Required header for MCP requests:
 MCP-Protocol-Version: 2025-06-18
 Authorization: Bearer <token>
 ```
+
+### Tool naming in client UIs
+
+Flit registers clean `verb_noun` names (`create_note`, `query_graph`). Some MCP hosts (including multi-server aggregators) may **prefix** callable names in their UI (e.g. `flit_note___create_note`). Always match on the Flit tool name suffix / catalog `name` field, not the host-specific prefix.
+
+### Catalog shape
+
+`GET /mcp/catalog` returns:
+
+- `server` — name, version, description, `base_url`, auth summary, capabilities (`search_tools`, `max_batch_size`, `return_modes`, rate-limit hint)
+- `groups` — category → tool name lists (`discovery`, `notes`, `categories`, `relationships`, `note_categories`, `user`)
+- `tools` — each with `name`, `description`, `category`, `tags`, `scopes`, `short_description`, `examples`, and (when `detail=full`) `input_schema`
+- `resources` — URI templates with `mime_type: application/json`
 
 ## Authentication
 
@@ -45,9 +63,16 @@ Create keys with a main-app JWT at `POST /mcp/api-keys`. Pass the key as `Author
 
 All four require a main-app JWT (`Authorization: Bearer <jwt>`). Sync device pairing (`/api/connected-apps`) is separate and does not include MCP agents.
 
+### xAI / Grok and similar hosts
+
+1. Register or obtain an MCP API key (`read` or `read write`) or complete OAuth against Flit's authorization server.
+2. Point the host at `https://<your-host>/mcp` with `MCP-Protocol-Version: 2025-06-18`.
+3. Prefer `search_tools` or `GET /mcp/catalog?detail=summary` first to reduce context, then call specific tools with full schemas.
+4. Request `read write` only when the agent must mutate notes/categories/relationships; otherwise use `read`.
+
 ## Scopes and write tools
 
-Read-only tokens hide write tools from `tools/list` and block `tools/call` on mutations. Write tools include `create_note`, `update_note`, `append_to_note`, `delete_note`, category/relationship CRUD, and note–category linking.
+Read-only tokens hide write tools from `tools/list` and block `tools/call` on mutations. Write tools include `create_note`, `update_note`, `append_to_note`, `delete_note`, category/relationship CRUD, and note–category linking. `search_tools` respects the same visibility rules.
 
 ## Token-efficient content controls
 
@@ -68,6 +93,14 @@ Large notes can consume context quickly. Use these parameters on read tools:
 All shaped responses include `content_length` when content metadata is available.
 
 ## Example agent workflows
+
+### Progressive tool discovery
+
+```
+1. search_tools(query="create note and link category", limit=8)
+2. GET /mcp/catalog?detail=summary&group=notes   # optional HTTP discovery
+3. tools/call create_note / link_note_to_category with full args
+```
 
 ### Research a topic in your notes
 
@@ -91,12 +124,14 @@ All shaped responses include `content_length` when content metadata is available
 1. list_categories()
 2. link_note_to_category(note_id=<id>, category_id=<id>)
 3. create_relationship(note_a_id=<a>, note_b_id=<b>, type="RELATED_TO")
+4. query_graph(starting_id=<a>, return_mode="snippet", return_format="flat")
 ```
 
 ## Tool reference (read tools)
 
 | Tool | Purpose |
 |------|---------|
+| `search_tools` | Progressive discovery by keyword; returns short summaries only |
 | `list_notes` | Discovery with search, category filter, date range, `pinned_only`, sorting |
 | `get_note` | Single note with categories and relationships |
 | `get_notes` | Batch retrieval (max 50 ids); returns `found` and `missing_ids` |
@@ -130,13 +165,13 @@ When billing is configured, MCP calls require an active subscription or access-c
 
 ## Rate limiting
 
-Per-user rate limits apply when `MCP_RATE_LIMIT_ENABLED=true` (default `120/minute`). Reduce call volume by using `get_notes` batch retrieval and content controls.
+Per-user rate limits apply when `MCP_RATE_LIMIT_ENABLED=true` (default `120/minute`). The catalog `server.capabilities.rate_limit` field advertises the configured limit string. Reduce call volume by using `get_notes` batch retrieval, `return_mode=snippet|metadata`, and `search_tools` instead of loading every schema up front.
 
 ## Resources
 
 | URI | Content |
 |-----|---------|
-| `flit://user/profile` | User profile JSON |
+| `flit://user/profile` | User profile JSON (`application/json`) |
 | `flit://note/{note_id}` | Single note (`NoteRead`, no embedded graph) |
 | `flit://category/{category_id}` | Category JSON |
 
@@ -147,8 +182,11 @@ Per-user rate limits apply when `MCP_RATE_LIMIT_ENABLED=true` (default `120/minu
 MCP_ENABLED=true
 PUBLIC_BASE_URL=http://127.0.0.1:8000
 
-# List tools via catalog
-curl -s http://127.0.0.1:8000/mcp/catalog | jq '.tools[].name'
+# List tools via catalog (summary)
+curl -s 'http://127.0.0.1:8000/mcp/catalog?detail=summary' | jq '.tools[].name'
+
+# Integration guide
+curl -s http://127.0.0.1:8000/mcp/docs | head
 
 # Call list_notes (replace TOKEN)
 curl -s -X POST http://127.0.0.1:8000/mcp \

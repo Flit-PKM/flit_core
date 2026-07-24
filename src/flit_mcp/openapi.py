@@ -6,6 +6,7 @@ from fastapi import FastAPI
 
 from config import settings
 from flit_mcp.mcp_catalog import collect_mcp_catalog, ensure_mcp_registrations
+from flit_mcp.tool_meta import TOOL_META
 
 
 def augment_mcp_openapi(schema: dict[str, Any], app: FastAPI) -> None:
@@ -25,13 +26,23 @@ def augment_mcp_openapi(schema: dict[str, Any], app: FastAPI) -> None:
 
     for tool in tools:
         name = tool["name"]
+        meta = TOOL_META.get(name)
+        props: dict[str, Any] = {
+            "name": {"type": "string", "const": name},
+            "description": {"type": "string"},
+            "inputSchema": tool.get("inputSchema") or {"type": "object"},
+        }
+        if meta:
+            props["category"] = {"type": "string", "const": meta.category}
+            props["tags"] = {
+                "type": "array",
+                "items": {"type": "string"},
+                "example": list(meta.tags),
+            }
+            props["scopes"] = {"type": "string", "const": meta.scopes}
         comp_schemas[f"McpTool_{name}"] = {
             "type": "object",
-            "properties": {
-                "name": {"type": "string", "const": name},
-                "description": {"type": "string"},
-                "inputSchema": tool.get("inputSchema") or {"type": "object"},
-            },
+            "properties": props,
             "required": ["name", "inputSchema"],
         }
 
@@ -105,7 +116,9 @@ def augment_mcp_openapi(schema: dict[str, Any], app: FastAPI) -> None:
     mcp_section = (
         "\n\n## MCP (Model Context Protocol)\n\n"
         "Tools are invoked via JSON-RPC 2.0 on `POST /mcp` (requires `MCP_ENABLED=true`). "
-        "Use `GET /mcp/catalog` for a machine-readable catalog.\n\n"
+        "Use `GET /mcp/catalog` for a machine-readable catalog "
+        "(`detail=summary|full`, optional `group` / `tag` filters). "
+        "Human guide: `GET /mcp/docs`. Progressive discovery: `search_tools`.\n\n"
         f"**Tools ({len(tools)}):**\n{tool_lines}\n\n"
         f"**Resources ({len(resources)}):**\n{resource_lines}\n"
     )
@@ -178,6 +191,16 @@ def augment_mcp_openapi(schema: dict[str, Any], app: FastAPI) -> None:
                 "name": t["name"],
                 "description": t.get("description"),
                 "inputSchema": t.get("inputSchema"),
+                **(
+                    {
+                        "category": TOOL_META[t["name"]].category,
+                        "tags": list(TOOL_META[t["name"]].tags),
+                        "scopes": TOOL_META[t["name"]].scopes,
+                        "short_description": TOOL_META[t["name"]].short_description,
+                    }
+                    if t["name"] in TOOL_META
+                    else {}
+                ),
             }
             for t in tools
         ]

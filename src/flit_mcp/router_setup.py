@@ -11,6 +11,7 @@ from flit_mcp.auth.contextvar import mcp_auth_ctx_var
 from flit_mcp.auth.resolve import resolve_mcp_auth
 from flit_mcp.oauth.metadata import oauth_protected_resource_metadata
 from flit_mcp.rate_limit import check_mcp_rate_limit
+from flit_mcp.server_info import MCP_SERVER_NAME, MCP_SERVER_VERSION
 from flit_mcp.tool_access import mcp_tool_filter
 from service.entitlement import require_active_entitlement
 from service.mcp_oauth import mcp_issuer
@@ -73,7 +74,7 @@ flit_mcp_router = MCPRouter(
     # Register GET /mcp so OAuth clients get 401 + WWW-Authenticate instead of SPA index.html.
     legacy_sse=True,
     server_info={
-        "name": "Flit Core MCP",
-        "version": "0.1.0",
+        "name": MCP_SERVER_NAME,
+        "version": MCP_SERVER_VERSION,
     },
 )

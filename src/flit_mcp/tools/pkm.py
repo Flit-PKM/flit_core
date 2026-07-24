@@ -23,6 +23,8 @@ from flit_mcp.note_response import (
 )
 from flit_mcp.router_setup import flit_mcp_router
 from flit_mcp.serialize import dump_model, dump_models
+from flit_mcp.server_info import MCP_MAX_BATCH_NOTE_IDS
+from flit_mcp.tool_meta import TOOL_META, search_tool_metas
 from models.note import Note, NoteType
 from models.relationship import RelationshipType
 from schemas.category import CategoryCreate, CategoryRead, CategoryUpdate
@@ -59,7 +61,6 @@ from service.relationship import (
 )
 from service.user import get_user
 
-MAX_BATCH_NOTE_IDS = 50
 SortByField = Literal["updated_at", "created_at", "title"]
 SortOrder = Literal["asc", "desc"]
 
@@ -119,6 +120,50 @@ async def _build_note_detail_read(
         **NoteRead.model_validate(note).model_dump(),
         categories=categories,
         relationships=relationships,
+    )
+
+
+@flit_mcp_router.tool()
+async def search_tools(
+    query: Annotated[
+        str,
+        Field(
+            description=(
+                "Natural language or keywords describing the capability you need "
+                "(e.g. 'create note', 'graph', 'categories')."
+            ),
+            min_length=1,
+        ),
+    ],
+    group: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Optional category filter: discovery, notes, categories, "
+                "relationships, note_categories, user."
+            )
+        ),
+    ] = None,
+    limit: Annotated[
+        int, Field(description="Maximum tools to return (1–50).", ge=1, le=50)
+    ] = 10,
+) -> list[dict[str, Any]]:
+    """Find relevant MCP tools without loading full input schemas.
+
+    Requires read scope. Prefer this for progressive discovery before tools/list
+    or GET /mcp/catalog?detail=full. Returns only tools visible for the current
+    token scope (write tools omitted for read-only tokens).
+    """
+    ctx = get_current_mcp_auth()
+    descriptions = {
+        name: meta.short_description for name, meta in TOOL_META.items()
+    }
+    return search_tool_metas(
+        query,
+        group=group,
+        limit=limit,
+        allow_write=ctx.allows_write(),
+        descriptions=descriptions,
     )
 
 
@@ -254,8 +299,10 @@ async def get_notes(
     """
     ctx = get_current_mcp_auth()
     mode = normalize_return_mode(return_mode)
-    if len(note_ids) > MAX_BATCH_NOTE_IDS:
-        raise ValidationError(f"note_ids may contain at most {MAX_BATCH_NOTE_IDS} ids")
+    if len(note_ids) > MCP_MAX_BATCH_NOTE_IDS:
+        raise ValidationError(
+            f"note_ids may contain at most {MCP_MAX_BATCH_NOTE_IDS} ids"
+        )
     if not note_ids:
         return {"found": [], "missing_ids": []}
 
@@ -357,6 +404,8 @@ async def create_note(
     """Create a new note owned by the authenticated user.
 
     Requires read write scope. Notes are always created as BASE type.
+    When to use: capture new knowledge before linking categories or relationships.
+    Prerequisite: none. On not-found later, verify ids via list_notes.
     """
     ctx = get_current_mcp_auth()
     _write_guard(ctx)
@@ -385,7 +434,9 @@ async def update_note(
 ) -> dict[str, Any]:
     """Update note fields. Requires read write scope. Only provided fields are changed.
 
+    When to use: rename, recolor, pin, or replace the full body.
     To add text without replacing the body, use append_to_note instead.
+    Error hint: if the note is missing, verify the id via list_notes.
     """
     ctx = get_current_mcp_auth()
     _write_guard(ctx)
@@ -414,7 +465,9 @@ async def append_to_note(
 ) -> dict[str, Any]:
     """Append text to a note without replacing the full content.
 
-    Requires read write scope. Use for logs, meeting notes, or incremental capture.
+    Requires read write scope. When to use: logs, meeting notes, or incremental capture.
+    Prerequisite: note_id from list_notes / create_note. Prefer over update_note when
+    preserving existing body text.
     """
     ctx = get_current_mcp_auth()
     _write_guard(ctx)
@@ -431,7 +484,10 @@ async def append_to_note(
 async def delete_note(
     note_id: Annotated[int, Field(description="Note id to soft-delete.")],
 ) -> dict[str, bool]:
-    """Soft-delete a note. Requires read write scope."""
+    """Soft-delete a note. Requires read write scope.
+
+    When to use: permanently hide a note from listings. Verify note_id via list_notes first.
+    """
     ctx = get_current_mcp_auth()
     _write_guard(ctx)
     async with mcp_db_session() as db:
@@ -446,7 +502,10 @@ async def list_categories(
         int, Field(description="Maximum categories to return (1–1000).", ge=1, le=1000)
     ] = 100,
 ) -> list[dict[str, Any]]:
-    """List categories for the authenticated user. Requires read scope."""
+    """List categories for the authenticated user. Requires read scope.
+
+    When to use: discover category ids before link_note_to_category or filtering list_notes.
+    """
     ctx = get_current_mcp_auth()
     limit = min(max(limit, 1), 1000)
     async with mcp_db_session() as db:
@@ -458,7 +517,10 @@ async def list_categories(
 async def get_category(
     category_id: Annotated[int, Field(description="Category id.")],
 ) -> dict[str, Any]:
-    """Retrieve a category by id. Requires read scope."""
+    """Retrieve a category by id. Requires read scope.
+
+    Prerequisite: category_id from list_categories. Error if missing or not owned.
+    """
     ctx = get_current_mcp_auth()
     async with mcp_db_session() as db:
         cat = await get_category_or_404(db, category_id, ctx.user_id)
@@ -469,7 +531,10 @@ async def get_category(
 async def create_category(
     name: Annotated[str, Field(description="Category name.", min_length=1)],
 ) -> dict[str, Any]:
-    """Create a category. Requires read write scope."""
+    """Create a category. Requires read write scope.
+
+    When to use: introduce a new organization label before linking notes to it.
+    """
     ctx = get_current_mcp_auth()
     _write_guard(ctx)
     async with mcp_db_session() as db:
@@ -482,7 +547,10 @@ async def update_category(
     category_id: Annotated[int, Field(description="Category id to rename.")],
     name: Annotated[str, Field(description="New category name.", min_length=1)],
 ) -> dict[str, Any]:
-    """Rename a category. Requires read write scope."""
+    """Rename a category. Requires read write scope.
+
+    Prerequisite: category_id from list_categories. Does not move notes.
+    """
     ctx = get_current_mcp_auth()
     _write_guard(ctx)
     async with mcp_db_session() as db:
@@ -496,7 +564,10 @@ async def update_category(
 async def delete_category(
     category_id: Annotated[int, Field(description="Category id to delete.")],
 ) -> dict[str, bool]:
-    """Delete a category. Requires read write scope."""
+    """Delete a category. Requires read write scope.
+
+    When to use: remove an unused label. Verify category_id via list_categories first.
+    """
     ctx = get_current_mcp_auth()
     _write_guard(ctx)
     async with mcp_db_session() as db:
@@ -512,7 +583,11 @@ async def list_relationships(
         int, Field(description="Maximum relationships to return.", ge=1, le=1000)
     ] = 100,
 ) -> list[dict[str, Any]]:
-    """List relationships for one note (1-hop adjacency). Requires read scope."""
+    """List relationships for one note (1-hop adjacency). Requires read scope.
+
+    When to use: inspect direct links before query_graph multi-hop traversal.
+    Prerequisite: note_id from list_notes.
+    """
     ctx = get_current_mcp_auth()
     async with mcp_db_session() as db:
         await _get_owned_note(db, note_id, ctx.user_id)
@@ -534,7 +609,11 @@ async def create_relationship(
         ),
     ] = "RELATED_TO",
 ) -> dict[str, Any]:
-    """Create a relationship between two notes. Requires read write scope."""
+    """Create a relationship between two notes. Requires read write scope.
+
+    When to use: connect related knowledge after create_note / list_notes.
+    Both notes must be owned; verify ids via list_notes if the call fails.
+    """
     ctx = get_current_mcp_auth()
     _write_guard(ctx)
     async with mcp_db_session() as db:
@@ -561,7 +640,10 @@ async def delete_relationship(
     note_a_id: Annotated[int, Field(description="First note id of the relationship.")],
     note_b_id: Annotated[int, Field(description="Second note id of the relationship.")],
 ) -> dict[str, bool]:
-    """Delete a relationship between two notes. Requires read write scope."""
+    """Delete a relationship between two notes. Requires read write scope.
+
+    Prerequisite: note ids from list_relationships or query_graph.
+    """
     ctx = get_current_mcp_auth()
     _write_guard(ctx)
     async with mcp_db_session() as db:
@@ -575,7 +657,10 @@ async def delete_relationship(
 async def list_note_categories(
     note_id: Annotated[int, Field(description="Note id whose categories to list.")],
 ) -> list[dict[str, Any]]:
-    """List categories linked to a note. Requires read scope."""
+    """List categories linked to a note. Requires read scope.
+
+    When to use: inspect organization before linking or unlinking categories.
+    """
     ctx = get_current_mcp_auth()
     async with mcp_db_session() as db:
         await _get_owned_note(db, note_id, ctx.user_id)
@@ -589,7 +674,11 @@ async def link_note_to_category(
     note_id: Annotated[int, Field(description="Note id to link.")],
     category_id: Annotated[int, Field(description="Category id to link to.")],
 ) -> dict[str, Any]:
-    """Link a note to a category. Requires read write scope."""
+    """Link a note to a category. Requires read write scope.
+
+    When to use: organize after create_note. Prerequisite: ids from list_notes and
+    list_categories (or create_category).
+    """
     ctx = get_current_mcp_auth()
     _write_guard(ctx)
     async with mcp_db_session() as db:
@@ -608,7 +697,10 @@ async def unlink_note_from_category(
     note_id: Annotated[int, Field(description="Note id to unlink.")],
     category_id: Annotated[int, Field(description="Category id to remove.")],
 ) -> dict[str, bool]:
-    """Remove a note–category link. Requires read write scope."""
+    """Remove a note–category link. Requires read write scope.
+
+    Prerequisite: confirm the link via list_note_categories first.
+    """
     ctx = get_current_mcp_auth()
     _write_guard(ctx)
     async with mcp_db_session() as db:
@@ -620,7 +712,10 @@ async def unlink_note_from_category(
 
 @flit_mcp_router.tool()
 async def get_user_profile() -> dict[str, Any]:
-    """Get the authenticated user's profile and subscription summary. Requires read scope."""
+    """Get the authenticated user's profile and subscription summary. Requires read scope.
+
+    When to use: check entitlement_active before heavy write workflows.
+    """
     ctx = get_current_mcp_auth()
     async with mcp_db_session() as db:
         user = await get_user(db, ctx.user_id)

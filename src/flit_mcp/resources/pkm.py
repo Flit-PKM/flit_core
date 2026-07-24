@@ -14,8 +14,10 @@ from service.category import get_category_or_404
 from service.note import get_note as get_note_row
 from service.user import get_user
 
+_JSON = "application/json"
 
-@flit_mcp_router.resource("flit://user/profile")
+
+@flit_mcp_router.resource("flit://user/profile", mime_type=_JSON)
 async def resource_user_profile() -> str:
     """Authenticated user's profile summary (read scope)."""
     ctx = get_current_mcp_auth()
@@ -40,7 +42,7 @@ async def resource_user_profile() -> str:
         return json.dumps(payload)
 
 
-@flit_mcp_router.resource("flit://note/{note_id}")
+@flit_mcp_router.resource("flit://note/{note_id}", mime_type=_JSON)
 async def resource_note(note_id: int) -> str:
     """Single note as JSON (read scope). Only notes you own."""
     ctx = get_current_mcp_auth()
@@ -53,7 +55,7 @@ async def resource_note(note_id: int) -> str:
         return json.dumps(dump_model(NoteRead.model_validate(note)))
 
 
-@flit_mcp_router.resource("flit://category/{category_id}")
+@flit_mcp_router.resource("flit://category/{category_id}", mime_type=_JSON)
 async def resource_category(category_id: int) -> str:
     """Single category as JSON (read scope)."""
     ctx = get_current_mcp_auth()
