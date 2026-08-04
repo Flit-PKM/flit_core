@@ -6,6 +6,7 @@ from config import settings
 from database.engine import AsyncSessionFactory
 from exceptions import AuthorizationError, BusinessLogicError, ValidationError
 from fastapi_mcp_router import MCPRouter
+from fastapi_mcp_router.exceptions import MCPError
 from flit_mcp.auth.context import McpAuthContext
 from flit_mcp.auth.contextvar import mcp_auth_ctx_var
 from flit_mcp.auth.resolve import resolve_mcp_auth
@@ -13,7 +14,11 @@ from flit_mcp.oauth.metadata import oauth_protected_resource_metadata
 from flit_mcp.rate_limit import check_mcp_rate_limit
 from flit_mcp.server_info import MCP_SERVER_NAME, MCP_SERVER_VERSION
 from flit_mcp.tool_access import mcp_tool_filter
-from service.entitlement import require_active_entitlement
+from service.entitlement import (
+    ENTITLEMENT_REQUIRED_DETAIL,
+    MCP_ENTITLEMENT_JSONRPC_CODE,
+    require_active_entitlement,
+)
 from service.mcp_oauth import mcp_issuer
 
 logger = logging.getLogger(__name__)
@@ -42,11 +47,17 @@ async def _mcp_auth_validator(
                 await require_active_entitlement(session, ctx.user_id)
             except AuthorizationError:
                 await session.rollback()
-                raise
+                # MCPError → JSON-RPC -32003 (auth runs before body parse, so id may be null)
+                raise MCPError(
+                    code=MCP_ENTITLEMENT_JSONRPC_CODE,
+                    message=ENTITLEMENT_REQUIRED_DETAIL,
+                )
             check_mcp_rate_limit(ctx.user_id)
             await session.commit()
             mcp_auth_ctx_var.set(ctx)
             return ctx
+        except MCPError:
+            raise
         except BusinessLogicError:
             await session.rollback()
             raise

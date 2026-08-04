@@ -2,11 +2,6 @@
 
 import os
 
-# Use D1 backend so Chunk model uses JSON (SQLite-compatible); tests use in-memory SQLite
-os.environ.setdefault("DB_BACKEND", "d1")
-os.environ.setdefault("CF_ACCOUNT_ID", "test-account")
-os.environ.setdefault("CF_API_TOKEN", "test-token")
-os.environ.setdefault("CF_DATABASE_ID", "test-database-id")
 os.environ["RATE_LIMIT_AUTH_ENABLED"] = "false"
 os.environ.setdefault("MCP_RATE_LIMIT_ENABLED", "false")
 
@@ -162,7 +157,6 @@ def mcp_enabled(monkeypatch, test_db_session):
         "database.engine",
         "flit_mcp.db",
         "flit_mcp.router_setup",
-        "middleware.mcp_entitlement",
     ):
         monkeypatch.setattr(f"{mod}.AsyncSessionFactory", _test_session_factory)
 

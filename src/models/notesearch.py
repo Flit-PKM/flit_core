@@ -7,7 +7,7 @@ from .base import Base
 
 
 class NoteSearch(Base):
-    """Search index for non-encrypted notes. One row per note; hard-deleted when note is soft-deleted."""
+    """Search index for notes. One row per note; hard-deleted when note is soft-deleted."""
 
     __tablename__ = "notesearch"
 

@@ -1,6 +1,6 @@
 # AGENTS.md — tests
 
-Async pytest against in-memory SQLite (`DB_BACKEND=d1` in conftest for Chunk JSON typing).
+Async pytest against in-memory SQLite.
 
 ## Prefer / avoid
 

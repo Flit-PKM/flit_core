@@ -133,7 +133,7 @@ async def test_checkout_not_configured_returns_503(test_client):
     """POST /billing/checkout when checkout not configured returns 503."""
     _override_checkout_auth()
     try:
-        with patch("routes.billing.is_checkout_configured", return_value=False):
+        with patch("routes.billing.is_plans_configured", return_value=False):
             response = test_client.post(
                 "/api/billing/checkout",
                 json={"product_id": "prod_abc"},
@@ -163,7 +163,7 @@ async def test_checkout_success_passes_product_id_to_service(test_client):
             return {"session_id": "sess_123", "checkout_url": "https://checkout.example.com/sess_123"}
 
         with patch("routes.billing.create_checkout_session", side_effect=mock_create_checkout_session):
-            with patch("routes.billing.is_checkout_configured", return_value=True):
+            with patch("routes.billing.is_plans_configured", return_value=True):
                 response = test_client.post(
                     "/api/billing/checkout",
                     json={
@@ -191,7 +191,7 @@ async def test_checkout_disallowed_product_id_returns_400(test_client):
         mock_client.checkout_sessions.create.return_value = mock_checkout_resp
 
         allowed = ["prod_monthly", "prod_annual"]
-        with patch("routes.billing.is_checkout_configured", return_value=True):
+        with patch("routes.billing.is_plans_configured", return_value=True):
             with patch("service.billing.get_allowed_product_ids", return_value=allowed):
                 with patch("service.billing._get_dodo_client", return_value=mock_client):
                     response = test_client.post(
@@ -233,7 +233,7 @@ async def test_billing_complete_success_returns_200(test_client):
     try:
         mock_complete = AsyncMock(return_value=None)
         with patch("routes.billing.complete_subscription", mock_complete):
-            with patch("routes.billing.is_checkout_configured", return_value=True):
+            with patch("routes.billing.is_plans_configured", return_value=True):
                 response = test_client.post(
                     "/api/billing/complete",
                     json={"subscription_id": "sub_abc", "status": "active"},
@@ -264,7 +264,7 @@ async def test_billing_portal_no_subscription_returns_404(test_client):
     """GET /billing/portal when user has no subscription returns 404."""
     _override_checkout_auth()
     try:
-        with patch("routes.billing.is_checkout_configured", return_value=True):
+        with patch("routes.billing.is_plans_configured", return_value=True):
             with patch("routes.billing.get_subscription_for_user", new=AsyncMock(return_value=None)):
                 response = test_client.get("/api/billing/portal")
     finally:
@@ -280,7 +280,7 @@ async def test_billing_portal_success_returns_portal_url(test_client):
         fake_sub = MagicMock()
         fake_sub.dodo_customer_id = "cus_abc"
         mock_portal = AsyncMock(return_value={"portal_url": "https://portal.example.com/s/1"})
-        with patch("routes.billing.is_checkout_configured", return_value=True):
+        with patch("routes.billing.is_plans_configured", return_value=True):
             with patch("routes.billing.get_subscription_for_user", new=AsyncMock(return_value=fake_sub)):
                 with patch("routes.billing.create_customer_portal_session", mock_portal):
                     response = test_client.get("/api/billing/portal")

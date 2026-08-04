@@ -21,7 +21,7 @@ from service.billing import (
     get_subscription_for_user,
     handle_webhook_event,
     is_billing_configured,
-    is_checkout_configured,
+    is_plans_configured,
     try_claim_dodo_webhook_id,
     unsafe_unwrap_webhook,
     unwrap_webhook,
@@ -151,7 +151,7 @@ async def create_checkout(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="product_id is required and cannot be empty",
         )
-    if not is_checkout_configured():
+    if not is_plans_configured():
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Billing is not configured",
@@ -240,7 +240,7 @@ async def get_customer_portal(
     db: AsyncSession = Depends(get_async_session),
 ) -> CustomerPortalResponse:
     """Return a Dodo customer portal URL for the current user to manage their subscription."""
-    if not is_checkout_configured():
+    if not is_plans_configured():
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Billing is not configured",

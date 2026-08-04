@@ -41,7 +41,6 @@ God modules (extend carefully / split when touching): `service/sync.py`, `servic
 - Sync note soft-delete must cascade relationships (same as `delete_note`).
 - MCP CORS may reflect Origin without credentials; Bearer auth is required for data.
 - Public subscribe/unsubscribe/feedback require Turnstile.
-- Dual DB backends (Postgres + D1) and pgvector storage without vector search are product choices — do not “simplify” without asking.
 
 ## Index
 

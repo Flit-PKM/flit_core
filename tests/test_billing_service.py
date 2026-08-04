@@ -122,7 +122,7 @@ async def test_create_checkout_session_single_product_cart():
     mock_client.checkout_sessions.create.return_value = mock_checkout_resp
 
     with (
-        patch("service.billing.is_checkout_configured", return_value=True),
+        patch("service.billing.is_plans_configured", return_value=True),
         patch(
             "service.billing.get_allowed_product_ids",
             return_value=["prod_annual_core_ai_enc"],
@@ -158,7 +158,7 @@ async def test_create_checkout_session_single_product_cart():
 async def test_create_checkout_session_rejects_empty_allowlist():
     """create_checkout_session raises ValueError when no plan products are configured."""
     with (
-        patch("service.billing.is_checkout_configured", return_value=True),
+        patch("service.billing.is_plans_configured", return_value=True),
         patch("service.billing.get_allowed_product_ids", return_value=[]),
     ):
         with pytest.raises(ValueError, match="No plan products configured"):
@@ -169,7 +169,7 @@ async def test_create_checkout_session_rejects_empty_allowlist():
 async def test_create_checkout_session_rejects_disallowed_product_id():
     """create_checkout_session raises ValueError when product_id is not one of the 4 allowed plans."""
     with (
-        patch("service.billing.is_checkout_configured", return_value=True),
+        patch("service.billing.is_plans_configured", return_value=True),
         patch(
             "service.billing.get_allowed_product_ids",
             return_value=["prod_m_ca", "prod_m_cae", "prod_a_ca", "prod_a_cae"],
@@ -260,7 +260,7 @@ async def test_complete_subscription_creates_plan_subscription(
     mock_client.subscriptions.retrieve.return_value = mock_sub
 
     with (
-        patch("service.billing.is_checkout_configured", return_value=True),
+        patch("service.billing.is_plans_configured", return_value=True),
         patch("service.billing._get_dodo_client", return_value=mock_client),
     ):
         await billing.complete_subscription(
@@ -318,7 +318,7 @@ async def test_complete_subscription_updates_existing_plan_subscription(
     mock_client.subscriptions.retrieve.return_value = mock_sub
 
     with (
-        patch("service.billing.is_checkout_configured", return_value=True),
+        patch("service.billing.is_plans_configured", return_value=True),
         patch("service.billing._get_dodo_client", return_value=mock_client),
     ):
         await billing.complete_subscription(
@@ -352,7 +352,7 @@ async def test_complete_subscription_not_found_raises():
     mock_client.subscriptions.retrieve.side_effect = DodoNotFoundError("Subscription not found")
 
     with (
-        patch("service.billing.is_checkout_configured", return_value=True),
+        patch("service.billing.is_plans_configured", return_value=True),
         patch("service.billing._get_dodo_client", return_value=mock_client),
     ):
         with pytest.raises(billing.BillingCompleteError) as exc_info:
@@ -380,7 +380,7 @@ async def test_complete_subscription_status_mismatch_raises(
     mock_client.subscriptions.retrieve.return_value = mock_sub
 
     with (
-        patch("service.billing.is_checkout_configured", return_value=True),
+        patch("service.billing.is_plans_configured", return_value=True),
         patch("service.billing._get_dodo_client", return_value=mock_client),
     ):
         with pytest.raises(billing.BillingCompleteError) as exc_info:
@@ -409,7 +409,7 @@ async def test_complete_subscription_wrong_user_raises_403(
     mock_client.subscriptions.retrieve.return_value = mock_sub
 
     with (
-        patch("service.billing.is_checkout_configured", return_value=True),
+        patch("service.billing.is_plans_configured", return_value=True),
         patch("service.billing._get_dodo_client", return_value=mock_client),
     ):
         with pytest.raises(billing.BillingCompleteError) as exc_info:
@@ -474,7 +474,7 @@ async def test_complete_subscription_resubscribe_updates_existing_row(
     mock_client.subscriptions.retrieve.return_value = mock_sub
 
     with (
-        patch("service.billing.is_checkout_configured", return_value=True),
+        patch("service.billing.is_plans_configured", return_value=True),
         patch("service.billing._get_dodo_client", return_value=mock_client),
     ):
         await billing.complete_subscription(
@@ -603,7 +603,7 @@ async def test_create_customer_portal_session_returns_link():
     mock_client.customers.customer_portal.create.return_value = mock_resp
 
     with (
-        patch("service.billing.is_checkout_configured", return_value=True),
+        patch("service.billing.is_plans_configured", return_value=True),
         patch("service.billing._get_dodo_client", return_value=mock_client),
     ):
         result = await billing.create_customer_portal_session("cus_123")

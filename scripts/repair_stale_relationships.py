@@ -5,11 +5,10 @@ Run from project root (uses .env / DATABASE_URL like the app):
 
   uv run python scripts/repair_stale_relationships.py
 
-Point at production by exporting DATABASE_URL (and DB_BACKEND=postgres if needed)
+Point at production by exporting DATABASE_URL
 before running, e.g.:
 
   export DATABASE_URL='postgresql+asyncpg://...'
-  export DB_BACKEND=postgres
   uv run python scripts/repair_stale_relationships.py
 
 Dry run (no commit):

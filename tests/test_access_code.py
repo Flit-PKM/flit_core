@@ -9,7 +9,7 @@ from fastapi import status
 
 from auth.password import get_password_hash
 from service.access_code import activate_code, create_access_code
-from service.billing import require_active_subscription
+from service.entitlement import require_active_entitlement
 from service.user import create_user, grant_superuser
 
 
@@ -208,11 +208,11 @@ async def test_activate_already_used(
 
 
 @pytest.mark.asyncio
-async def test_require_active_subscription_allows_access_grant(
+async def test_require_active_entitlement_allows_access_grant(
     test_db_session,
     sample_user_data: dict,
 ):
-    """When billing is configured, user with no plan but with non-expired access grant passes require_active_subscription."""
+    """When billing is configured, user with no plan but with non-expired access grant passes require_active_entitlement."""
     user_data = sample_user_data.copy()
     user_data["password_hash"] = get_password_hash(user_data.pop("password"))
     user = await create_user(test_db_session, user_data)
@@ -237,7 +237,7 @@ async def test_require_active_subscription_allows_access_grant(
     await test_db_session.commit()
 
     with patch("service.billing.is_billing_configured", return_value=True):
-        await require_active_subscription(test_db_session, user.id)
+        await require_active_entitlement(test_db_session, user.id)
 
 
 @pytest.mark.asyncio

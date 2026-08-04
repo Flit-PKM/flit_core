@@ -5,7 +5,7 @@ Backend API for **Flit** (PKM / personal knowledge management). FastAPI app with
 ## Requirements
 
 - **Python** ≥ 3.13  
-- **Database**: PostgreSQL (with pgvector for vector features) **or** Cloudflare D1 (serverless SQLite)  
+- **Database**: PostgreSQL  
 - **[uv](https://docs.astral.sh/uv/)** (recommended) or pip
 
 ## Quick start
@@ -29,20 +29,18 @@ cp .env.example .env
 Edit `.env` and set at least:
 
 - **SECRET_KEY** – at least 32 characters (used for JWT)
-- **Database**: either **PostgreSQL** (`DB_BACKEND=postgres` and either a single `DATABASE_URL` (e.g. for Render) or `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT`, `DB_NAME`) or **Cloudflare D1** (`DB_BACKEND=d1` and `CF_ACCOUNT_ID`, `CF_API_TOKEN`, `CF_DATABASE_ID`)
+- **Database**: **PostgreSQL** — either a single `DATABASE_URL` (e.g. for Render) or `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT`, `DB_NAME`
 
-See [Environment variables](#environment-variables) and [Cloudflare D1](#cloudflare-d1) for all options.
+See [Environment variables](#environment-variables) for all options.
 
 ### 3. Database
 
-Create the database (PostgreSQL or D1), then run migrations:
+Create the PostgreSQL database, then run migrations:
 
 ```bash
 # From project root; Alembic uses .env for DB connection
 uv run alembic upgrade head
 ```
-
-With `DB_BACKEND=d1`, ensure `CF_ACCOUNT_ID`, `CF_API_TOKEN`, and `CF_DATABASE_ID` are set in `.env` before running migrations.
 
 ### 4. Run the server
 
@@ -172,16 +170,12 @@ uv run pytest tests -v --cov=main --cov=auth --cov=database --cov=config --cov=e
 | Variable | Required | Description |
 |----------|----------|-------------|
 | **SECRET_KEY** | Yes | JWT signing key (min 32 chars). Change from default in production. |
-| **DB_BACKEND** | No | `postgres` (default) or `d1` (Cloudflare D1) |
 | **DATABASE_URL** | When postgres | Full PostgreSQL URL (e.g. for Render). When set, DB_USER, DB_PASSWORD, DB_HOST, DB_PORT, DB_NAME are optional. |
 | **DB_USER** | When postgres | PostgreSQL user |
 | **DB_PASSWORD** | When postgres | PostgreSQL password (min 8 chars) |
 | **DB_HOST** | No | PostgreSQL host (default: `localhost`) |
 | **DB_PORT** | No | PostgreSQL port (default: `5432`) |
 | **DB_NAME** | When postgres | PostgreSQL database name |
-| **CF_ACCOUNT_ID** | When d1 | Cloudflare account ID (D1) |
-| **CF_API_TOKEN** | When d1 | Cloudflare API token with D1 permissions |
-| **CF_DATABASE_ID** | When d1 | Cloudflare D1 database ID (UUID) |
 | **ENVIRONMENT** | No | `development` \| `production` \| `test` (default: `development`) |
 | **PUBLIC_BASE_URL** | When production | Canonical public URL (email links, MCP OAuth). Defaults in dev/test if unset. |
 | **LOG_LEVEL** | No | `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` |
@@ -197,6 +191,14 @@ See `.env.example` for the full list and defaults.
 
 ## Migrations
 
+History was squashed to a baseline revision (`baseline_001`) plus follow-up revisions. For a **new empty database**, run `uv run alembic upgrade head`. For an **existing database** that already had the old migration chain applied (e.g. `add_admin_webhooks` in `alembic_version`), purge-stamp the baseline without running it, then upgrade:
+
+```bash
+uv run alembic stamp --purge baseline_001 && uv run alembic upgrade head
+```
+
+`--purge` is required: after the squash the old revision files are gone, so plain `stamp` fails with `Can't locate revision identified by 'add_admin_webhooks'`. Do **not** run `upgrade baseline_001` on a database that already has tables.
+
 - **Create a new revision:**  
   `uv run alembic revision --autogenerate -m "description"`  
   (Run from project root; Alembic adds `src` to the path automatically.)
@@ -207,27 +209,7 @@ See `.env.example` for the full list and defaults.
 - **Downgrade one step:**  
   `uv run alembic downgrade -1`
 
-Alembic reads the database URL from your `.env` (via `config.settings` in `alembic/env.py`). With `DB_BACKEND=d1` and CF_* set, migrations target D1 (SQLite-compatible DDL).
-
-## Cloudflare D1
-
-You can use **Cloudflare D1** (serverless SQLite) instead of PostgreSQL by setting:
-
-- `DB_BACKEND=d1`
-- `CF_ACCOUNT_ID` – your Cloudflare account ID  
-- `CF_API_TOKEN` – API token with D1 permissions (e.g. Account:D1:Edit)  
-- `CF_DATABASE_ID` – the D1 database UUID  
-
-The app uses the [sqlalchemy-cloudflare-d1](https://pypi.org/project/sqlalchemy-cloudflare-d1/) dialect with async support (`cloudflare_d1+async://`).
-
-**Limitations when using D1:**
-
-- **No full transactions** – D1’s HTTP API auto-commits each statement; multi-statement transactions are not supported.
-- **Rate limits** – Subject to Cloudflare API rate limits; consider retries/backoff in production.
-- **No pgvector similarity** – Chunk embeddings are stored as JSON on D1; vector similarity search is only available with PostgreSQL.
-- **Latency** – API-based access can add latency compared to a direct TCP connection.
-
-Store `CF_API_TOKEN` securely (e.g. secrets manager); never hardcode.
+Alembic reads the database URL from your `.env` (via `config.settings` in `alembic/env.py`).
 
 ## Production
 

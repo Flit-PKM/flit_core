@@ -52,7 +52,6 @@ from flit_mcp.openapi import augment_mcp_openapi
 from openapi_augment import augment_core_openapi
 from flit_mcp.setup import register_mcp, register_mcp_openapi
 from middleware.cors import McpReflectOriginMiddleware
-from middleware.mcp_entitlement import McpEntitlementMiddleware
 from middleware.logging import RequestLoggingMiddleware, log_exceptions_middleware
 from logging_config import setup_logging
 from limiter import limiter
@@ -239,7 +238,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.add_middleware(McpReflectOriginMiddleware)
-app.add_middleware(McpEntitlementMiddleware)
 
 app.add_middleware(SlowAPIMiddleware)
 # Add middleware

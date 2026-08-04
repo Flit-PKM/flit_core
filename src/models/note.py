@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from enum import StrEnum
 
-from sqlalchemy import Boolean, Enum, ForeignKey, String, Text, func
+from sqlalchemy import Boolean, ForeignKey, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .base import Base
@@ -17,7 +17,6 @@ class NoteType(StrEnum):
 
 class Note(Base):
     __tablename__ = "notes"
-    AppType = Enum("Flit", "Still", name="app_type")
 
     id: Mapped[int] = mapped_column(primary_key=True)
     title: Mapped[str] = mapped_column(Text, nullable=False)

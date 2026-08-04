@@ -14,10 +14,7 @@ from logging_config import get_logger
 from schemas.sync import (
     CategoriesCompareResult,
     CategorySync,
-    ChunksCompareResult,
-    ChunkSync,
     CompareCategoriesRequest,
-    CompareChunksRequest,
     CompareNoteCategoriesRequest,
     CompareNotesRequest,
     CompareRelationshipsRequest,
@@ -29,8 +26,6 @@ from schemas.sync import (
     RelationshipSync,
     SyncCategoriesResponse,
     SyncCategoryPushResult,
-    SyncChunkPushResult,
-    SyncChunksResponse,
     SyncNoteCategoriesResponse,
     SyncNoteCategoryPushResult,
     SyncNoteCategoryRead,
@@ -41,21 +36,17 @@ from schemas.sync import (
     SyncRelationshipRead,
     SyncRelationshipsResponse,
     SyncCategoryRead,
-    SyncChunkRead,
 )
 from service.sync import (
     compare_categories,
-    compare_chunks,
     compare_note_categories,
     compare_notes,
     compare_relationships,
     get_categories_by_ids,
-    get_chunks_by_ids,
     get_notes_by_ids,
     get_note_categories_by_keys,
     get_relationships_by_keys,
     sync_categories,
-    sync_chunks,
     sync_note_categories,
     sync_notes,
     sync_relationships,
@@ -126,19 +117,6 @@ async def compare_relationships_route(
     user_id, _ = oauth_ctx
     result = await compare_relationships(db, user_id, body.relationships)
     _log_sync_compare_debug("relationships", body, result)
-    return result
-
-
-@router.post("/compare/chunks", response_model=ChunksCompareResult)
-async def compare_chunks_route(
-    body: CompareChunksRequest,
-    oauth_ctx: OAuthContext = Depends(get_sync_oauth_context),
-    db: AsyncSession = Depends(get_async_session),
-):
-    """Compare chunk versions between app and server. Returns to_pull and to_push."""
-    user_id, _ = oauth_ctx
-    result = await compare_chunks(db, user_id, body.chunks)
-    _log_sync_compare_debug("chunks", body, result)
     return result
 
 
@@ -228,42 +206,6 @@ async def push_categories(
     """Push a single category: create or update with version conflict resolution."""
     user_id, _ = oauth_ctx
     results = await sync_categories(db, user_id, [category])
-    return results[0]
-
-
-@router.get("/chunks", response_model=SyncChunksResponse)
-async def get_chunks(
-    core_id: int = Query(
-        ...,
-        description="Chunk core_id (server id, Chunk.id value)",
-        examples=[100],
-    ),
-    oauth_ctx: OAuthContext = Depends(get_sync_oauth_context),
-    db: AsyncSession = Depends(get_async_session),
-):
-    """Get a single chunk by core_id (server id). Pull uses only core_id. Only chunks whose note belongs to the user."""
-    user_id, _ = oauth_ctx
-    chunks = await get_chunks_by_ids(db, user_id, [core_id])
-    if not chunks:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Chunk with core_id={core_id} not found",
-        )
-    chunk = chunks[0]
-    return SyncChunksResponse(
-        chunk=SyncChunkRead.model_validate(chunk).model_dump(by_alias=True)
-    )
-
-
-@router.post("/chunks", response_model=SyncChunkPushResult)
-async def push_chunks(
-    chunk: ChunkSync,
-    oauth_ctx: OAuthContext = Depends(get_sync_oauth_context),
-    db: AsyncSession = Depends(get_async_session),
-):
-    """Push a single chunk: create or update with version conflict resolution."""
-    user_id, _ = oauth_ctx
-    results = await sync_chunks(db, user_id, [chunk])
     return results[0]
 
 

@@ -10,16 +10,15 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth.password import get_password_hash
-from models.chunk import Chunk
 from models.connected_app import ConnectedApp
 from models.note import Note
 from note_factory import make_test_note
 from models.plan_subscription import PlanSubscription
 from models.user import User
-from schemas.sync import ChunkVersion, NoteSync, NoteVersion
+from schemas.sync import NoteSync, NoteVersion
 from service.billing import SUBSCRIPTION_STATUS_ACTIVE
 from service.oauth import issue_tokens_for_connected_app
-from service.sync import compare_chunks, compare_notes, get_notes_by_ids, sync_notes
+from service.sync import compare_notes, get_notes_by_ids, sync_notes
 
 
 @pytest_asyncio.fixture
@@ -362,51 +361,6 @@ async def test_get_notes_by_ids_includes_deleted(
     assert len(notes) == 1
     assert notes[0].id == note_id
     assert notes[0].is_deleted is True
-
-
-@pytest.mark.asyncio
-async def test_compare_chunks_does_not_create_db_rows_when_core_id_none(
-    test_db_session: AsyncSession,
-    sync_test_data: dict,
-):
-    """compare_chunks is read-only: when app sends chunk with core_id=None, no Chunk row is created."""
-    user = sync_test_data["user"]
-    app = sync_test_data["connected_app"]
-
-    note = make_test_note(
-        title="Chunk Note",
-        content="Content",
-        type="BASE",
-        version=1,
-        user_id=user.id,
-        source_id=app.id,
-        is_deleted=False,
-    )
-    test_db_session.add(note)
-    await test_db_session.flush()
-    note_id = note.id
-    await test_db_session.commit()
-
-    response = await compare_chunks(
-        test_db_session,
-        user_id=user.id,
-        app_chunks=[
-            ChunkVersion(
-                app_id="local-chunk-1",
-                core_id=None,
-                note_core_id=note_id,
-                version=1,
-                is_deleted=False,
-            ),
-        ],
-    )
-    assert len(response.to_push) == 1
-    assert response.to_push[0].core_id is None
-    assert response.to_push[0].app_id == "local-chunk-1"
-
-    r = await test_db_session.execute(select(Chunk))
-    chunks = list(r.scalars().all())
-    assert len(chunks) == 0
 
 
 @pytest.mark.asyncio

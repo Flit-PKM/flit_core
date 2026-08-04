@@ -4,22 +4,6 @@ from typing import Optional
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
-class SubscriptionCreate(BaseModel):
-    """Payload for adding an email to the subscription list."""
-
-    email: EmailStr = Field(
-        ...,
-        description="Email address to subscribe",
-        examples=["user@example.com"],
-    )
-
-    model_config = ConfigDict(
-        json_schema_extra={
-            "example": {"email": "user@example.com"},
-        }
-    )
-
-
 class SubscriptionSubscribe(BaseModel):
     """Payload for POST /subscriptions: email + Turnstile token."""
 

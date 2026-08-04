@@ -10,7 +10,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from config import settings
 from logging_config import get_logger
 from models.category import Category
-from models.chunk import Chunk
 from models.note import Note
 from models.note_category import NoteCategory
 from models.relationship import Relationship
@@ -29,8 +28,8 @@ async def purge_soft_deleted_older_than(
 ) -> dict[str, int]:
     """Hard-delete rows where is_deleted is true and updated_at is older than `weeks`.
 
-    Returns a dict of table name -> number of rows deleted for each of the five
-    tables (notes, categories, relationships, chunks, note_categories).
+    Returns a dict of table name -> number of rows deleted for each of the four
+    tables (notes, categories, relationships, note_categories).
     """
     if weeks is None:
         weeks = settings.PURGE_SOFT_DELETED_AFTER_WEEKS
@@ -42,7 +41,6 @@ async def purge_soft_deleted_older_than(
         ("notes", Note),
         ("categories", Category),
         ("relationships", Relationship),
-        ("chunks", Chunk),
         ("note_categories", NoteCategory),
     ]:
         stmt = delete(model).where(

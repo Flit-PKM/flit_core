@@ -126,13 +126,7 @@ class Settings(BaseSettings):
         description="Directory containing frontend build (index.html, assets, etc.)",
     )
 
-    # Database backend: postgres (default) or d1 (Cloudflare D1)
-    DB_BACKEND: Literal["postgres", "d1"] = Field(
-        default="postgres",
-        description="Database backend: postgres or d1 (Cloudflare D1)",
-    )
-
-    # PostgreSQL settings (required when DB_BACKEND=postgres unless DATABASE_URL env is set)
+    # PostgreSQL settings (required unless DATABASE_URL env is set)
     database_url_from_env: Optional[str] = Field(
         default=None,
         description="Full PostgreSQL URL (overrides DB_USER/DB_PASSWORD/DB_HOST/DB_PORT/DB_NAME when set, e.g. for Render)",
@@ -147,12 +141,7 @@ class Settings(BaseSettings):
     # Managed PostgreSQL (e.g. on Render) encrypts storage at rest by default (disks and backups).
     # The application stores note bodies as plaintext in the database.
 
-    # Cloudflare D1 settings (required when DB_BACKEND=d1)
-    CF_ACCOUNT_ID: Optional[str] = Field(default=None, description="Cloudflare account ID (D1)")
-    CF_API_TOKEN: Optional[str] = Field(default=None, description="Cloudflare API token with D1 permissions")
-    CF_DATABASE_ID: Optional[str] = Field(default=None, description="Cloudflare D1 database ID")
-
-    # Database Connection Pool Settings (PostgreSQL only)
+    # Database Connection Pool Settings
     DB_POOL_SIZE: int = Field(default=5, ge=1, le=100, description="Database connection pool size")
     DB_MAX_OVERFLOW: int = Field(default=10, ge=0, le=100, description="Maximum overflow connections")
 
@@ -182,10 +171,6 @@ class Settings(BaseSettings):
     DODO_PAYMENTS_ENVIRONMENT: Optional[Literal["test", "live"]] = Field(
         default="test",
         description="Dodo Payments environment: test or live",
-    )
-    DODO_PAYMENTS_SUBSCRIPTION_PRODUCT_ID: Optional[str] = Field(
-        default=None,
-        description="Optional: used for is_billing_configured when plan IDs are not set (e.g. sync gating).",
     )
     DODO_PAYMENTS_MONTHLY: Optional[str] = Field(
         default=None,
@@ -380,36 +365,20 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_database_backend(self) -> "Settings":
-        """Require backend-specific env vars: DB_* for postgres, CF_* for d1."""
-        if self.DB_BACKEND == "d1":
+        """Require DATABASE_URL or DB_USER/DB_PASSWORD/DB_NAME for PostgreSQL."""
+        if not self.database_url_from_env:
             missing = [k for k, v in [
-                ("CF_ACCOUNT_ID", self.CF_ACCOUNT_ID),
-                ("CF_API_TOKEN", self.CF_API_TOKEN),
-                ("CF_DATABASE_ID", self.CF_DATABASE_ID),
+                ("DB_USER", self.DB_USER),
+                ("DB_PASSWORD", self.DB_PASSWORD),
+                ("DB_NAME", self.DB_NAME),
             ] if not v]
             if missing:
                 raise ValueError(
-                    f"When DB_BACKEND=d1, the following are required: {', '.join(missing)}"
+                    f"Set DATABASE_URL or the following: {', '.join(missing)}"
                 )
-        else:
-            if not self.database_url_from_env:
-                missing = [k for k, v in [
-                    ("DB_USER", self.DB_USER),
-                    ("DB_PASSWORD", self.DB_PASSWORD),
-                    ("DB_NAME", self.DB_NAME),
-                ] if not v]
-                if missing:
-                    raise ValueError(
-                        f"When DB_BACKEND=postgres, set DATABASE_URL or the following: {', '.join(missing)}"
-                    )
-                if self.DB_PASSWORD and len(self.DB_PASSWORD) < 8:
-                    raise ValueError("DB_PASSWORD must be at least 8 characters")
+            if self.DB_PASSWORD and len(self.DB_PASSWORD) < 8:
+                raise ValueError("DB_PASSWORD must be at least 8 characters")
         return self
-
-    @property
-    def is_d1(self) -> bool:
-        """True when using Cloudflare D1 backend."""
-        return self.DB_BACKEND == "d1"
 
     def get_allowed_apps(self) -> List[dict[str, str]]:
         """Return app list from ALLOWED_APPS_JSON if set, else default (validated at startup)."""
@@ -417,10 +386,7 @@ class Settings(BaseSettings):
 
     @property
     def DATABASE_URL(self) -> str:
-        """Return database URL for the active backend (from DATABASE_URL env or built from DB_*)."""
-        if self.DB_BACKEND == "d1":
-            token = quote(self.CF_API_TOKEN or "", safe="")
-            return f"cloudflare_d1+async://{self.CF_ACCOUNT_ID}:{token}@{self.CF_DATABASE_ID}"
+        """Return PostgreSQL async URL (from DATABASE_URL env or built from DB_*)."""
         if self.database_url_from_env:
             url = self.database_url_from_env.strip()
             if url.startswith("postgres://"):

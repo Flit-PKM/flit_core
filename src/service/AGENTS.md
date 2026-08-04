@@ -4,7 +4,7 @@ Business logic for notes, sync, billing, OAuth, MCP tokens, purge, newsletters.
 
 ## File map
 
-- `sync.py` — compare/push for notes/categories/relationships/chunks/note_categories (god module)
+- `sync.py` — compare/push for notes/categories/relationships/note_categories
 - `note.py` / `note_persistence.py` — note CRUD; persistence keeps notesearch in sync
 - `billing.py` / `entitlement.py` — Dodo + access-code gating
 - `oauth.py` / `mcp_oauth.py` — connected-app vs MCP token issuance
@@ -16,7 +16,7 @@ Business logic for notes, sync, billing, OAuth, MCP tokens, purge, newsletters.
 - Soft-delete note → soft-delete relationships (API and sync).
 - Integrity conflicts use `begin_nested()`, not full `session.rollback()`.
 - Newsletter: do not mark SENT when every recipient delivery fails.
-- `hard_delete_user` must clear MCP tables on SQLite/D1 (no CASCADE reliance).
+- `hard_delete_user` must clear MCP tables on SQLite test DB (no CASCADE reliance).
 
 ## Prefer / avoid
 

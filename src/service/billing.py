@@ -104,11 +104,7 @@ def is_billing_configured() -> bool:
     """True if Dodo Payments API key and at least one plan product ID are set (sync gating, etc.)."""
     if not settings.DODO_PAYMENTS_API_KEY:
         return False
-    return bool(
-        settings.DODO_PAYMENTS_SUBSCRIPTION_PRODUCT_ID
-        or settings.DODO_PAYMENTS_MONTHLY
-        or settings.DODO_PAYMENTS_ANNUAL
-    )
+    return bool(settings.DODO_PAYMENTS_MONTHLY or settings.DODO_PAYMENTS_ANNUAL)
 
 
 def is_plans_configured() -> bool:
@@ -125,10 +121,6 @@ def get_allowed_product_ids() -> list[str]:
         if pid and pid.strip():
             ids.append(pid.strip())
     return ids
-
-
-# Backward-compatible name used by routes/tests; same predicate as is_plans_configured.
-is_checkout_configured = is_plans_configured
 
 
 def _price_to_dict(price: Any) -> dict[str, Any]:
@@ -306,7 +298,7 @@ async def create_checkout_session(
     Create a Dodo Checkout Session for the given plan product.
     Checkout is single-product only; no addons or separate usage product.
     """
-    if not is_checkout_configured():
+    if not is_plans_configured():
         raise ValueError("Dodo Payments is not configured")
     allowed = get_allowed_product_ids()
     if not allowed:
@@ -343,7 +335,7 @@ async def create_checkout_session(
 
 async def create_customer_portal_session(customer_id: str) -> dict[str, str]:
     """Create a Dodo customer portal session link for self-service subscription management."""
-    if not is_checkout_configured():
+    if not is_plans_configured():
         raise ValueError("Dodo Payments is not configured")
     cid = (customer_id or "").strip()
     if not cid:
@@ -468,7 +460,7 @@ async def complete_subscription(
     Verify subscription with Dodo, ensure it belongs to the current user, and upsert PlanSubscription.
     Raises BillingCompleteError with (status_code, detail) for 400, 403, 404, 502.
     """
-    if not is_checkout_configured():
+    if not is_plans_configured():
         raise BillingCompleteError(503, "Billing is not configured")
     if not subscription_id or not subscription_id.strip():
         raise BillingCompleteError(400, "subscription_id is required and cannot be empty")
@@ -568,13 +560,6 @@ async def get_subscription_for_user(
         select(PlanSubscription).where(PlanSubscription.user_id == user_id)
     )
     return result.scalar_one_or_none()
-
-
-async def require_active_subscription(db: AsyncSession, user_id: int) -> None:
-    """Alias for entitlement.require_active_entitlement (lazy import avoids cycle)."""
-    from service.entitlement import require_active_entitlement
-
-    await require_active_entitlement(db, user_id)
 
 
 async def try_claim_dodo_webhook_id(db: AsyncSession, webhook_id: str) -> bool:

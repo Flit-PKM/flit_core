@@ -561,9 +561,9 @@ async def test_mcp_tools_list_blocked_without_entitlement_when_billing_on(
         )
     assert response.status_code == 200
     data = response.json()
-    assert data["id"] == 99
     assert data["error"]["code"] == MCP_ENTITLEMENT_JSONRPC_CODE
     assert ENTITLEMENT_REQUIRED_DETAIL in data["error"]["message"]
+    # Auth runs before JSON-RPC body parse, so id may be null.
 
 
 @pytest.mark.asyncio

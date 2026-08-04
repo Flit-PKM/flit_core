@@ -13,7 +13,6 @@ Set all of these together for production billing. Partial config disables entitl
 | `DODO_PAYMENTS_ENVIRONMENT` | No | `test` (default) or `live` |
 | `DODO_PAYMENTS_MONTHLY` | Yes* | Dodo product ID for the monthly plan |
 | `DODO_PAYMENTS_ANNUAL` | Yes* | Dodo product ID for the annual plan |
-| `DODO_PAYMENTS_SUBSCRIPTION_PRODUCT_ID` | No | Legacy fallback for `is_billing_configured` when plan IDs are unset |
 | `PUBLIC_BASE_URL` | Yes (prod) | Used to build the webhook URL below |
 
 \*At least one of `DODO_PAYMENTS_MONTHLY` or `DODO_PAYMENTS_ANNUAL` is required for checkout and entitlement gating.

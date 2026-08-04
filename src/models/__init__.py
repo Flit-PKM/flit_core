@@ -2,7 +2,6 @@ from .access_code import AccessCode, AccessCodeGrant
 from .admin_webhook import AdminWebhook
 from .base import Base
 from .category import Category
-from .chunk import Chunk
 from .connection_code import ConnectionCode
 from .connected_app import ConnectedApp
 from .feedback import Feedback

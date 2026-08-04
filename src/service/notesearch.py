@@ -1,4 +1,4 @@
-"""Notesearch: index and search non-encrypted notes by prefix/substring/fuzzy."""
+"""Notesearch: index and search notes by prefix/substring/fuzzy."""
 
 from __future__ import annotations
 
@@ -123,7 +123,7 @@ async def upsert_notesearch(
     title: str,
     content: str,
 ) -> None:
-    """Insert or update notesearch row for a note. Call only for non-encrypted notes."""
+    """Insert or update notesearch row for a note."""
     search_content = normalize_for_search(title, content)
     stmt = select(NoteSearch).where(NoteSearch.note_id == note_id)
     result = await session.execute(stmt)
@@ -157,11 +157,11 @@ async def search_notes(
     updated_before: datetime | None = None,
 ) -> List[Note]:
     """
-    Search non-encrypted notes by query.
+    Search notes by query.
 
     Multi-word queries require every word to match (prefix, substring, or fuzzy).
     Results sort by prefix hit count, then weighted score, then recency.
-    Only notes with a notesearch row are considered (i.e. non-encrypted).
+    Only notes with a notesearch row are included.
     """
     query_words = _query_words(query)
     if not query_words:

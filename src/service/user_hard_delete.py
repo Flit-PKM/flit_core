@@ -7,7 +7,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.access_code import AccessCodeGrant
 from models.category import Category
-from models.chunk import Chunk
 from models.connected_app import ConnectedApp
 from models.connection_code import ConnectionCode
 from models.feedback_response import FeedbackResponse
@@ -69,7 +68,6 @@ async def hard_delete_user(db: AsyncSession, user_id: int) -> None:
         )
         await db.execute(delete(NoteCategory).where(NoteCategory.note_id.in_(note_ids)))
         await db.execute(delete(NoteSearch).where(NoteSearch.note_id.in_(note_ids)))
-        await db.execute(delete(Chunk).where(Chunk.note_id.in_(note_ids)))
     await db.execute(delete(Note).where(Note.user_id == user_id))
     await db.execute(delete(Category).where(Category.user_id == user_id))
     await db.execute(delete(ConnectedApp).where(ConnectedApp.user_id == user_id))

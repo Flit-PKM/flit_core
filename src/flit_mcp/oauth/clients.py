@@ -39,8 +39,3 @@ def load_static_oauth_clients() -> dict[str, McpOAuthClient]:
             exact_redirect_match=False,
         )
     return clients
-
-
-def get_oauth_client(client_id: str) -> McpOAuthClient | None:
-    """Sync lookup for static clients only (tests/legacy). Prefer resolve_oauth_client."""
-    return load_static_oauth_clients().get(client_id)

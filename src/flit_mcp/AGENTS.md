@@ -8,7 +8,7 @@ MCP JSON-RPC tools/resources and OAuth authorization-server HTML/HTTP.
 - `oauth/` — authorize/consent/token, CIMD, DCR, HTML
 - `auth/` — resolve MCP Bearer/API key; `require_mcp_write`
 - `rate_limit.py` — process-local sliding window (`ponytail:`)
-- `middleware` helpers live under `src/middleware/` (CORS reflect, entitlement)
+- Entitlement for MCP usage is enforced once in `router_setup._mcp_auth_validator` (JSON-RPC `-32003`)
 
 ## Invariants
 

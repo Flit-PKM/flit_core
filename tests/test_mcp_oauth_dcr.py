@@ -45,7 +45,6 @@ def mcp_dcr_env(monkeypatch, test_db_session):
         "database.engine",
         "flit_mcp.db",
         "flit_mcp.router_setup",
-        "middleware.mcp_entitlement",
     ):
         monkeypatch.setattr(f"{mod}.AsyncSessionFactory", _test_session_factory)
 
@@ -511,8 +510,8 @@ async def test_dynamic_connect_oauth_succeeds_but_mcp_usage_blocked_without_enti
         )
         assert mcp_resp.status_code == 200
         body = mcp_resp.json()
-        assert body["id"] == 42
         assert body["error"]["code"] == MCP_ENTITLEMENT_JSONRPC_CODE
         assert ENTITLEMENT_REQUIRED_DETAIL in body["error"]["message"]
+        # Auth runs before JSON-RPC body parse, so id may be null.
     finally:
         monkeypatch_billing.undo()

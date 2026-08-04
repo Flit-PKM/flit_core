@@ -398,7 +398,7 @@ async def test_list_notes_pinned_first_despite_older_updated_at(
     assert data[1]["pinned"] is False
 
 
-# ----- Notesearch persistence (non-encrypted only) -----
+# ----- Notesearch persistence -----
 
 
 @pytest.mark.asyncio
