@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import secrets
-from datetime import datetime, timezone
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,10 +10,7 @@ from exceptions import NotFoundError, ValidationError
 from flit_mcp.scopes import READ_WRITE_SCOPE, SUPPORTED_SCOPES, normalize_requested_scope
 from models.mcp_api_key import McpApiKey
 from service.mcp_oauth import MCP_API_KEY_PREFIX
-
-
-def _utcnow_naive() -> datetime:
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+from utc import utc_naive_now
 
 
 def generate_api_key_plaintext() -> str:
@@ -40,7 +36,7 @@ async def create_mcp_api_key(
         key_hash=get_password_hash(plaintext),
         key_prefix=prefix,
         scopes=normalized,
-        created_at=_utcnow_naive(),
+        created_at=utc_naive_now(),
         last_used_at=None,
         revoked_at=None,
     )
@@ -77,7 +73,7 @@ async def revoke_mcp_api_key(
     row = result.scalar_one_or_none()
     if not row:
         raise NotFoundError("API key not found")
-    row.revoked_at = _utcnow_naive()
+    row.revoked_at = utc_naive_now()
     await session.flush()
 
 
@@ -96,7 +92,7 @@ async def validate_mcp_api_key(
     )
     for row in result.scalars().all():
         if verify_password(bearer, row.key_hash):
-            row.last_used_at = _utcnow_naive()
+            row.last_used_at = utc_naive_now()
             await session.flush()
             return row.user_id, row.scopes
     return None

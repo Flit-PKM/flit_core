@@ -114,7 +114,9 @@ async def send_campaign_now(
         raise ValidationError("Newsletter already sent")
     if row.status == NewsletterStatus.CANCELLED.value:
         raise ValidationError("Cannot send a cancelled newsletter")
-    await _broadcast_to_subscribers(db, row)
+    sent, total = await _broadcast_to_subscribers(db, row)
+    if total > 0 and sent == 0:
+        raise ValidationError("Failed to deliver newsletter to any recipient")
     now = datetime.now(timezone.utc)
     row.status = NewsletterStatus.SENT.value
     row.sent_at = now
@@ -135,16 +137,26 @@ async def process_due_scheduled_campaigns(db: AsyncSession) -> int:
         )
     )
     rows = list(r.scalars().all())
+    sent_count = 0
     for row in rows:
-        await _broadcast_to_subscribers(db, row)
+        sent, total = await _broadcast_to_subscribers(db, row)
+        if total > 0 and sent == 0:
+            logger.error(
+                "Newsletter campaign %s delivery failed for all recipients; leaving scheduled",
+                row.id,
+            )
+            continue
         row.status = NewsletterStatus.SENT.value
         row.sent_at = now
         row.scheduled_at = None
         await db.flush()
-    return len(rows)
+        sent_count += 1
+    return sent_count
 
 
-async def _broadcast_to_subscribers(db: AsyncSession, campaign: NewsletterCampaign) -> None:
+async def _broadcast_to_subscribers(
+    db: AsyncSession, campaign: NewsletterCampaign
+) -> tuple[int, int]:
     r = await db.execute(select(Subscription.email))
     emails = [row[0] for row in r.all()]
     sent = 0
@@ -163,3 +175,4 @@ async def _broadcast_to_subscribers(db: AsyncSession, campaign: NewsletterCampai
         sent,
         len(emails),
     )
+    return sent, len(emails)

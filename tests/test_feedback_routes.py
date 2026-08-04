@@ -1,5 +1,7 @@
 """Tests for feedback routes: POST (public), GET/DELETE (superuser)."""
 
+from unittest.mock import AsyncMock, patch
+
 import pytest
 from fastapi import status
 
@@ -24,10 +26,11 @@ async def test_post_feedback_without_auth_succeeds(
     test_db_session,
 ):
     """POST /feedback without auth returns 201 and stores feedback."""
-    response = test_client.post(
-        "/api/feedback",
-        json={"content": "Great feature!"},
-    )
+    with patch("routes.feedback.verify_turnstile_token", new_callable=AsyncMock):
+        response = test_client.post(
+            "/api/feedback",
+            json={"content": "Great feature!", "cf_turnstile_response": "mock-token"},
+        )
     assert response.status_code == status.HTTP_201_CREATED
     data = response.json()
     assert data["content"] == "Great feature!"
@@ -42,13 +45,15 @@ async def test_post_feedback_with_context(
     test_db_session,
 ):
     """POST /feedback accepts optional context."""
-    response = test_client.post(
-        "/api/feedback",
-        json={
-            "content": "Bug report",
-            "context": {"page": "settings", "version": "1.0.0"},
-        },
-    )
+    with patch("routes.feedback.verify_turnstile_token", new_callable=AsyncMock):
+        response = test_client.post(
+            "/api/feedback",
+            json={
+                "content": "Bug report",
+                "context": {"page": "settings", "version": "1.0.0"},
+                "cf_turnstile_response": "mock-token",
+            },
+        )
     assert response.status_code == status.HTTP_201_CREATED
     data = response.json()
     assert data["content"] == "Bug report"
@@ -56,22 +61,34 @@ async def test_post_feedback_with_context(
 
 
 @pytest.mark.asyncio
-async def test_post_feedback_missing_content_returns_422(test_client):
-    """POST /feedback with missing content returns 422."""
+async def test_post_feedback_without_turnstile_returns_400(test_client):
+    """POST /feedback without Turnstile token returns 400."""
     response = test_client.post(
         "/api/feedback",
-        json={},
+        json={"content": "Spam"},
     )
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+
+@pytest.mark.asyncio
+async def test_post_feedback_missing_content_returns_422(test_client):
+    """POST /feedback with missing content returns 422."""
+    with patch("routes.feedback.verify_turnstile_token", new_callable=AsyncMock):
+        response = test_client.post(
+            "/api/feedback",
+            json={"cf_turnstile_response": "mock-token"},
+        )
     assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
 
 @pytest.mark.asyncio
 async def test_post_feedback_empty_content_returns_422(test_client):
     """POST /feedback with empty content returns 422."""
-    response = test_client.post(
-        "/api/feedback",
-        json={"content": ""},
-    )
+    with patch("routes.feedback.verify_turnstile_token", new_callable=AsyncMock):
+        response = test_client.post(
+            "/api/feedback",
+            json={"content": "", "cf_turnstile_response": "mock-token"},
+        )
     assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
 

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,11 +13,7 @@ from models.plan_subscription import PlanSubscription
 from models.subscription import Subscription
 from models.user import User
 from service.billing import SUBSCRIPTION_STATUS_ACTIVE
-
-
-def _utc_naive_now() -> datetime:
-    """Current instant as naive UTC (for timestamp without time zone columns)."""
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+from utc import utc_naive_now
 
 
 @dataclass
@@ -42,7 +38,7 @@ class AdminStatsResult:
 
 
 async def get_admin_stats(db: AsyncSession) -> AdminStatsResult:
-    now = _utc_naive_now()
+    now = utc_naive_now()
     t24 = now - timedelta(hours=24)
     t7 = now - timedelta(days=7)
     t30 = now - timedelta(days=30)

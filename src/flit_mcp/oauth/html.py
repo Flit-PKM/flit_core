@@ -280,10 +280,26 @@ def _localhost_warning(redirect_uri: str) -> str:
     )
 
 
+def _safe_logo_uri(logo_uri: str) -> str | None:
+    """Allow https logos and same-origin static paths only (no javascript: etc.)."""
+    uri = logo_uri.strip()
+    if not uri:
+        return None
+    lower = uri.lower()
+    if lower.startswith("https://"):
+        return uri
+    if uri.startswith("/") and not uri.startswith("//"):
+        return uri
+    return None
+
+
 def _client_logo_block(logo_uri: str | None) -> str:
     if not logo_uri:
         return ""
-    safe_uri = html.escape(logo_uri, quote=True)
+    allowed = _safe_logo_uri(logo_uri)
+    if not allowed:
+        return ""
+    safe_uri = html.escape(allowed, quote=True)
     return f'<img class="mcp-oauth-client-logo" src="{safe_uri}" alt="" />'
 
 

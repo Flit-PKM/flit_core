@@ -2,7 +2,7 @@
 
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, Query, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth.dependencies import get_current_superuser
@@ -23,6 +23,11 @@ from service.feedback import (
     list_feedback_responses,
     list_feedbacks,
 )
+from turnstile import (
+    TurnstileVerificationError,
+    client_ip_from_request,
+    verify_turnstile_token,
+)
 
 logger = get_logger(__name__)
 
@@ -38,10 +43,20 @@ async def create_feedback_endpoint(
     body: FeedbackCreate,
     db: AsyncSession = Depends(get_async_session),
 ):
-    """Create feedback. Public; no authentication required."""
-    logger.info(f"POST /feedback - New feedback submitted")
+    """Create feedback. Public; requires valid Turnstile token."""
+    try:
+        await verify_turnstile_token(
+            body.cf_turnstile_response, client_ip_from_request(request)
+        )
+    except TurnstileVerificationError as exc:
+        logger.warning("Turnstile verification failed for feedback: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Human verification failed. Please try again.",
+        )
+    logger.info("POST /feedback - New feedback submitted")
     feedback = await create_feedback(db, body.content, body.context)
-    logger.info(f"POST /feedback - Created feedback {feedback.id}")
+    logger.info("POST /feedback - Created feedback %s", feedback.id)
     return feedback
 
 

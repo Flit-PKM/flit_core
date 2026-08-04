@@ -17,7 +17,7 @@ from service.mcp_oauth import (
     set_pending_user,
 )
 from service.user import create_user
-from test_mcp import _mcp_headers, mcp_enabled  # noqa: F401 — fixture
+from test_mcp import _mcp_headers
 
 
 def _login(test_client, email: str, password: str) -> str:

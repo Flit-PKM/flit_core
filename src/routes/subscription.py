@@ -18,7 +18,11 @@ from service.subscription import (
     delete_subscription_by_email,
     get_all_subscriptions,
 )
-from turnstile import TurnstileVerificationError, verify_turnstile_token
+from turnstile import (
+    TurnstileVerificationError,
+    client_ip_from_request,
+    verify_turnstile_token,
+)
 
 logger = get_logger(__name__)
 
@@ -61,17 +65,12 @@ async def subscribe(
 ):
     """Add an email to the subscription list. Public; requires valid Turnstile token."""
     email = body.email
-    token = body.cf_turnstile_response
-    client_ip = request.headers.get("CF-Connecting-IP") or request.headers.get("X-Forwarded-For")
-    if client_ip and "," in client_ip:
-        client_ip = client_ip.split(",")[0].strip()
-    if not client_ip and request.client:
-        client_ip = request.client.host
-
     logger.info(f"POST /subscriptions/ - Subscribe attempt for email: {email}")
 
     try:
-        await verify_turnstile_token(token, client_ip)
+        await verify_turnstile_token(
+            body.cf_turnstile_response, client_ip_from_request(request)
+        )
     except TurnstileVerificationError as exc:
         logger.warning("Turnstile verification failed for %s: %s", email, exc)
         raise HTTPException(
@@ -89,9 +88,20 @@ async def subscribe(
 
 @router.delete("/", status_code=status.HTTP_204_NO_CONTENT)
 async def unsubscribe(
+    request: Request,
     body: SubscriptionDelete,
     db: AsyncSession = Depends(get_async_session),
 ):
-    """Remove an email from the subscription list. Email must be on the list."""
+    """Remove an email from the subscription list. Public; requires valid Turnstile token."""
+    try:
+        await verify_turnstile_token(
+            body.cf_turnstile_response, client_ip_from_request(request)
+        )
+    except TurnstileVerificationError as exc:
+        logger.warning("Turnstile verification failed for unsubscribe %s: %s", body.email, exc)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Human verification failed. Please try again.",
+        )
     await delete_subscription_by_email(db, body.email)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

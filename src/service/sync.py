@@ -23,6 +23,7 @@ from service.note_persistence import (
     update_note as persistence_update_note,
 )
 from service.note_state_hash import body_hash, compute_state_hash
+from service.relationship import soft_delete_relationships_for_note
 from schemas.sync import (
     CategoryVersion,
     ChunkVersion,
@@ -247,6 +248,7 @@ async def sync_notes(
                         await persistence_soft_delete_note(
                             session, db_note, version=note_sync.version
                         )
+                        await soft_delete_relationships_for_note(session, db_note.id)
                     else:
                         sync_body_changed = body_hash(
                             title=note_sync.title, content=note_sync.content
@@ -288,6 +290,7 @@ async def sync_notes(
                         await persistence_soft_delete_note(
                             session, db_note, version=note_sync.version
                         )
+                        await soft_delete_relationships_for_note(session, db_note.id)
                         results.append(
                             SyncPushResult(
                                 core_id=db_note.id,
@@ -318,8 +321,6 @@ async def sync_notes(
                             if sync_body_changed:
                                 db_note.title = note_sync.title
                                 db_note.content = note_sync.content
-                            if note_sync.is_deleted:
-                                db_note.is_deleted = True
                             db_note.state_hash = sync_new_state
                             db_note.version += 1
                             await persistence_update_note(
@@ -521,18 +522,25 @@ async def sync_categories(
                         )
                     )
                 else:
-                    db.name = s.name
-                    if s.is_deleted:
-                        db.is_deleted = True
-                    db.version += 1
-                    await session.flush()
-                    results.append(
-                        SyncCategoryPushResult(
-                            core_id=db.id,
-                            status="updated",
-                            server_version=db.version,
+                    if db.name == s.name:
+                        results.append(
+                            SyncCategoryPushResult(
+                                core_id=db.id,
+                                status="updated",
+                                server_version=db.version,
+                            )
                         )
-                    )
+                    else:
+                        db.name = s.name
+                        db.version += 1
+                        await session.flush()
+                        results.append(
+                            SyncCategoryPushResult(
+                                core_id=db.id,
+                                status="updated",
+                                server_version=db.version,
+                            )
+                        )
         except Exception as e:
             logger.error(f"Error syncing category: {e}", exc_info=True)
             results.append(
@@ -599,12 +607,16 @@ async def compare_relationships(
         for r in app_relationships
     }
 
-    r = await session.execute(select(Relationship))
-    all_rels = [
-        x
-        for x in r.scalars().all()
-        if x.note_a_id in user_notes and x.note_b_id in user_notes
-    ]
+    if not user_notes:
+        all_rels = []
+    else:
+        r = await session.execute(
+            select(Relationship).where(
+                Relationship.note_a_id.in_(user_notes),
+                Relationship.note_b_id.in_(user_notes),
+            )
+        )
+        all_rels = list(r.scalars().all())
     server_map = {(rel.note_a_id, rel.note_b_id): rel for rel in all_rels}
 
     if not app_keys:
@@ -974,12 +986,16 @@ async def compare_note_categories(
         for nc in app_note_categories
     }
 
-    r = await session.execute(select(NoteCategory))
-    all_nc = [
-        x
-        for x in r.scalars().all()
-        if x.note_id in user_notes and x.category_id in user_cats
-    ]
+    if not user_notes or not user_cats:
+        all_nc = []
+    else:
+        r = await session.execute(
+            select(NoteCategory).where(
+                NoteCategory.note_id.in_(user_notes),
+                NoteCategory.category_id.in_(user_cats),
+            )
+        )
+        all_nc = list(r.scalars().all())
     server_map = {(nc.note_id, nc.category_id): nc for nc in all_nc}
 
     if not app_keys:

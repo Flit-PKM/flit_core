@@ -14,12 +14,12 @@ from exceptions import ValidationError
 from logging_config import get_logger
 from models.user import User
 from service.email import send_email
-from service.mcp_oauth import public_base_url
+from public_url import public_base_url
 from service.user import get_user
 
 logger = get_logger(__name__)
 
-# In-memory cooldown: user_id -> last_sent timestamp (seconds since epoch)
+# ponytail: process-local cooldown dict (multi-worker bypass + unbounded growth); use Redis/DB when scaling.
 _verification_cooldown: dict[int, float] = {}
 
 

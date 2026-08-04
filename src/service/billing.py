@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 SUBSCRIPTION_STATUS_ACTIVE = "active"
 
-# In-memory cache for plans (product details from Dodo). Single process only.
+# ponytail: in-memory plans cache is single-process only; use shared cache or drop TTL when multi-worker.
 _plans_cache: list[dict[str, Any]] | None = None
 _plans_cache_time: float = 0.0
 _PLANS_CACHE_TTL_SECONDS = 300  # 5 minutes
@@ -127,9 +127,8 @@ def get_allowed_product_ids() -> list[str]:
     return ids
 
 
-def is_checkout_configured() -> bool:
-    """True if Dodo Payments API key and at least one plan product ID are set."""
-    return is_plans_configured()
+# Backward-compatible name used by routes/tests; same predicate as is_plans_configured.
+is_checkout_configured = is_plans_configured
 
 
 def _price_to_dict(price: Any) -> dict[str, Any]:
@@ -572,11 +571,7 @@ async def get_subscription_for_user(
 
 
 async def require_active_subscription(db: AsyncSession, user_id: int) -> None:
-    """
-    Ensure the user has an active subscription or a non-expired access-code grant when billing is configured.
-    If billing is not configured, no-op (sync remains available).
-    Raises AuthorizationError (403) when billing is configured and user lacks entitlement.
-    """
+    """Alias for entitlement.require_active_entitlement (lazy import avoids cycle)."""
     from service.entitlement import require_active_entitlement
 
     await require_active_entitlement(db, user_id)

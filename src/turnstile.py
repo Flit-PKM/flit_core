@@ -1,10 +1,11 @@
-"""Cloudflare Turnstile server-side verification for subscribe endpoint."""
+"""Cloudflare Turnstile server-side verification for public form endpoints."""
 
 from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
 import httpx
+from fastapi import Request
 
 from config import settings
 
@@ -13,6 +14,17 @@ class TurnstileVerificationError(Exception):
     """Raised when Turnstile token verification fails."""
 
     pass
+
+
+def client_ip_from_request(request: Request) -> Optional[str]:
+    client_ip = request.headers.get("CF-Connecting-IP") or request.headers.get(
+        "X-Forwarded-For"
+    )
+    if client_ip and "," in client_ip:
+        client_ip = client_ip.split(",")[0].strip()
+    if not client_ip and request.client:
+        client_ip = request.client.host
+    return client_ip
 
 
 async def verify_turnstile_token(

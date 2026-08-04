@@ -43,7 +43,7 @@ from service.category import (
 from service.note import (
     create_note as create_note_svc,
     delete_note as delete_note_svc,
-    get_note as get_note_svc,
+    get_note_or_404,
     get_notes_by_ids,
     get_notes_by_user,
     update_note as update_note_svc,
@@ -65,10 +65,6 @@ SortByField = Literal["updated_at", "created_at", "title"]
 SortOrder = Literal["asc", "desc"]
 
 
-def _write_guard(ctx: McpAuthContext) -> None:
-    require_mcp_write(ctx)
-
-
 def _parse_optional_datetime(value: str | None) -> datetime | None:
     if value is None:
         return None
@@ -88,10 +84,10 @@ def _normalize_sort_order(value: str) -> SortOrder:
 
 
 async def _get_owned_note(db: AsyncSession, note_id: int, user_id: int) -> Note:
-    note = await get_note_svc(db, note_id)
-    if not note or note.user_id != user_id:
-        raise note_not_found(note_id)
-    return note
+    try:
+        return await get_note_or_404(db, note_id, user_id)
+    except NotFoundError:
+        raise note_not_found(note_id) from None
 
 
 async def _build_note_detail_read(
@@ -408,7 +404,7 @@ async def create_note(
     Prerequisite: none. On not-found later, verify ids via list_notes.
     """
     ctx = get_current_mcp_auth()
-    _write_guard(ctx)
+    require_mcp_write(ctx)
     body = NoteCreateRequest(
         title=title,
         content=content,
@@ -439,7 +435,7 @@ async def update_note(
     Error hint: if the note is missing, verify the id via list_notes.
     """
     ctx = get_current_mcp_auth()
-    _write_guard(ctx)
+    require_mcp_write(ctx)
     async with mcp_db_session() as db:
         await _get_owned_note(db, note_id, ctx.user_id)
         payload: dict[str, Any] = {}
@@ -470,7 +466,7 @@ async def append_to_note(
     preserving existing body text.
     """
     ctx = get_current_mcp_auth()
-    _write_guard(ctx)
+    require_mcp_write(ctx)
     async with mcp_db_session() as db:
         note = await _get_owned_note(db, note_id, ctx.user_id)
         new_content = note.content + separator + content
@@ -489,7 +485,7 @@ async def delete_note(
     When to use: permanently hide a note from listings. Verify note_id via list_notes first.
     """
     ctx = get_current_mcp_auth()
-    _write_guard(ctx)
+    require_mcp_write(ctx)
     async with mcp_db_session() as db:
         await delete_note_svc(db, note_id, ctx.user_id)
         return {"deleted": True}
@@ -536,7 +532,7 @@ async def create_category(
     When to use: introduce a new organization label before linking notes to it.
     """
     ctx = get_current_mcp_auth()
-    _write_guard(ctx)
+    require_mcp_write(ctx)
     async with mcp_db_session() as db:
         cat = await create_category_svc(db, CategoryCreate(name=name), ctx.user_id)
         return dump_model(CategoryRead.model_validate(cat))
@@ -552,7 +548,7 @@ async def update_category(
     Prerequisite: category_id from list_categories. Does not move notes.
     """
     ctx = get_current_mcp_auth()
-    _write_guard(ctx)
+    require_mcp_write(ctx)
     async with mcp_db_session() as db:
         cat = await update_category_svc(
             db, category_id, CategoryUpdate(name=name), ctx.user_id
@@ -569,7 +565,7 @@ async def delete_category(
     When to use: remove an unused label. Verify category_id via list_categories first.
     """
     ctx = get_current_mcp_auth()
-    _write_guard(ctx)
+    require_mcp_write(ctx)
     async with mcp_db_session() as db:
         await delete_category_svc(db, category_id, ctx.user_id)
         return {"deleted": True}
@@ -615,7 +611,7 @@ async def create_relationship(
     Both notes must be owned; verify ids via list_notes if the call fails.
     """
     ctx = get_current_mcp_auth()
-    _write_guard(ctx)
+    require_mcp_write(ctx)
     async with mcp_db_session() as db:
         if type not in RelationshipType.__members__:
             raise ValidationError(
@@ -645,7 +641,7 @@ async def delete_relationship(
     Prerequisite: note ids from list_relationships or query_graph.
     """
     ctx = get_current_mcp_auth()
-    _write_guard(ctx)
+    require_mcp_write(ctx)
     async with mcp_db_session() as db:
         await delete_relationship_for_user_svc(
             db, note_a_id, note_b_id, ctx.user_id
@@ -680,7 +676,7 @@ async def link_note_to_category(
     list_categories (or create_category).
     """
     ctx = get_current_mcp_auth()
-    _write_guard(ctx)
+    require_mcp_write(ctx)
     async with mcp_db_session() as db:
         await _get_owned_note(db, note_id, ctx.user_id)
         await get_category_or_404(db, category_id, ctx.user_id)
@@ -702,7 +698,7 @@ async def unlink_note_from_category(
     Prerequisite: confirm the link via list_note_categories first.
     """
     ctx = get_current_mcp_auth()
-    _write_guard(ctx)
+    require_mcp_write(ctx)
     async with mcp_db_session() as db:
         await _get_owned_note(db, note_id, ctx.user_id)
         await get_category_or_404(db, category_id, ctx.user_id)

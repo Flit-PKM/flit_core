@@ -86,9 +86,13 @@ async def get_note(session: AsyncSession, note_id: int) -> Note | None:
     return result.scalar_one_or_none()
 
 
-async def get_note_or_404(session: AsyncSession, note_id: int) -> Note:
+async def get_note_or_404(
+    session: AsyncSession,
+    note_id: int,
+    user_id: int | None = None,
+) -> Note:
     note = await get_note(session, note_id)
-    if not note:
+    if not note or (user_id is not None and note.user_id != user_id):
         raise NotFoundError("Note not found")
     return note
 
@@ -163,18 +167,6 @@ async def get_notes_by_user(
     stmt = stmt.offset(skip).limit(limit)
     result = await session.execute(stmt)
     return list(result.scalars().unique().all() if category_name else result.scalars().all())
-
-
-async def get_all_notes(
-    session: AsyncSession,
-    *,
-    skip: int = 0,
-    limit: int = 100,
-) -> List[Note]:
-    result = await session.execute(
-        select(Note).where(Note.is_deleted == False).offset(skip).limit(limit)
-    )
-    return list(result.scalars().all())
 
 
 _FINGERPRINT_FIELDS = frozenset({"title", "content", "pinned", "color"})

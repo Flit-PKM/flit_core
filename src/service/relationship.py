@@ -37,10 +37,10 @@ async def create_relationship(
     )
     session.add(rel)
     try:
-        await session.flush()
-        await session.refresh(rel)
+        async with session.begin_nested():
+            await session.flush()
+            await session.refresh(rel)
     except IntegrityError:
-        await session.rollback()
         raise ConflictError("Relationship between these notes already exists") from None
     logger.info(
         "Relationship created: note_a=%s, note_b=%s, type=%s",

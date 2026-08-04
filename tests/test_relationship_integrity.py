@@ -11,15 +11,16 @@ from auth.password import get_password_hash
 from models.relationship import Relationship, RelationshipType
 from schemas.note import NoteCreate
 from schemas.relationship import RelationshipCreate
-from schemas.sync import RelationshipSync
+from schemas.sync import NoteSync, RelationshipSync
 from service.note import create_note, delete_note
 from service.relationship import (
     create_relationship,
     list_relationships_for_note,
     repair_stale_relationships,
 )
-from service.sync import sync_relationships
+from service.sync import sync_notes, sync_relationships
 from service.user import create_user
+from models.connected_app import ConnectedApp
 
 
 def _login(test_client, email: str, password: str) -> str:
@@ -120,6 +121,63 @@ async def test_delete_note_soft_deletes_relationships(
     await delete_note(test_db_session, b.id, user.id)
     await test_db_session.commit()
 
+    rels = await list_relationships_for_note(test_db_session, a.id)
+    assert rels == []
+
+
+@pytest.mark.asyncio
+async def test_sync_soft_delete_note_cascades_relationships(
+    test_db_session: AsyncSession,
+    sample_user_data: dict,
+):
+    """Sync note soft-delete must cascade like API delete_note."""
+    user_data = sample_user_data.copy()
+    user_data["password_hash"] = get_password_hash(user_data.pop("password"))
+    user = await create_user(test_db_session, user_data)
+    app = ConnectedApp(
+        user_id=user.id,
+        app_slug="flit",
+        device_name="Test",
+        platform="test",
+        app_version="1.0",
+    )
+    test_db_session.add(app)
+    await test_db_session.flush()
+    a = await create_note(
+        test_db_session,
+        NoteCreate(user_id=user.id, title="A", content="a", type="BASE"),
+    )
+    b = await create_note(
+        test_db_session,
+        NoteCreate(user_id=user.id, title="B", content="b", type="BASE"),
+    )
+    await create_relationship(
+        test_db_session,
+        RelationshipCreate(
+            note_a_id=a.id,
+            note_b_id=b.id,
+            type=RelationshipType.RELATED_TO,
+        ),
+        user.id,
+    )
+    await test_db_session.commit()
+
+    results = await sync_notes(
+        test_db_session,
+        user_id=user.id,
+        connected_app_id=app.id,
+        notes=[
+            NoteSync(
+                core_id=b.id,
+                title="B",
+                content="b",
+                type="BASE",
+                version=b.version + 1,
+                is_deleted=True,
+            )
+        ],
+    )
+    assert results[0].status == "updated"
     rels = await list_relationships_for_note(test_db_session, a.id)
     assert rels == []
 

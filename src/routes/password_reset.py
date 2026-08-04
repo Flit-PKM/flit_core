@@ -16,7 +16,7 @@ from schemas.password_reset import (
     PasswordResetRequest,
     PasswordResetRequestResponse,
 )
-from service.mcp_oauth import public_base_url
+from public_url import public_base_url
 from service.password_reset import confirm_password_reset, request_password_reset
 from auth.password_reset_token import verify_password_reset_token
 

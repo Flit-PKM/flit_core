@@ -23,10 +23,10 @@ async def create_category(
     db_category = Category(**category_dict)
     session.add(db_category)
     try:
-        await session.flush()
-        await session.refresh(db_category)
+        async with session.begin_nested():
+            await session.flush()
+            await session.refresh(db_category)
     except IntegrityError:
-        await session.rollback()
         raise ConflictError("Category with this name already exists for this user") from None
     logger.info("Category created: id=%s, name=%s, user_id=%s", db_category.id, db_category.name, user_id)
     return db_category
@@ -85,10 +85,10 @@ async def update_category(
     for field, value in payload.items():
         setattr(category, field, value)
     try:
-        await session.flush()
-        await session.refresh(category)
+        async with session.begin_nested():
+            await session.flush()
+            await session.refresh(category)
     except IntegrityError:
-        await session.rollback()
         raise ConflictError("Category with this name already exists for this user") from None
     logger.info("Category updated: id=%s, user_id=%s", category_id, user_id)
     return category

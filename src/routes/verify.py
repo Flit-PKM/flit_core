@@ -10,7 +10,7 @@ from exceptions import ValidationError
 from logging_config import get_logger
 from models.user import User
 from schemas.verify import VerifySendResponse, VerifyTokenResponse
-from service.mcp_oauth import public_base_url
+from public_url import public_base_url
 from service.verification import consume_verification_token, send_verification_email
 
 logger = get_logger(__name__)

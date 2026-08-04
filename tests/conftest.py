@@ -129,3 +129,52 @@ def sample_note_data() -> dict:
         "content": "This is a test note",
         "type": "BASE",
     }
+
+
+@pytest.fixture
+def mcp_enabled(monkeypatch, test_db_session):
+    """Enable MCP routes for a test (re-register MCP ahead of SPA mount)."""
+    from starlette.routing import Mount
+
+    from config import settings
+    from flit_mcp.setup import register_mcp
+    from main import app
+
+    monkeypatch.setattr(settings, "MCP_ENABLED", True)
+    monkeypatch.setattr(settings, "PUBLIC_BASE_URL", "http://testserver")
+    monkeypatch.setattr(settings, "MCP_RATE_LIMIT_ENABLED", False)
+    monkeypatch.setattr("service.billing.is_billing_configured", lambda: False)
+
+    class _TestSessionCtx:
+        def __init__(self, session):
+            self._session = session
+
+        async def __aenter__(self):
+            return self._session
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+    def _test_session_factory():
+        return _TestSessionCtx(test_db_session)
+
+    for mod in (
+        "database.engine",
+        "flit_mcp.db",
+        "flit_mcp.router_setup",
+        "middleware.mcp_entitlement",
+    ):
+        monkeypatch.setattr(f"{mod}.AsyncSessionFactory", _test_session_factory)
+
+    spa_mount = None
+    for i, route in enumerate(list(app.router.routes)):
+        if isinstance(route, Mount) and route.path in ("", "/"):
+            spa_mount = app.router.routes.pop(i)
+            break
+    import flit_mcp.setup as mcp_setup
+
+    mcp_setup._mcp_registered = False
+    app.openapi_schema = None
+    register_mcp(app)
+    if spa_mount is not None:
+        app.router.routes.append(spa_mount)

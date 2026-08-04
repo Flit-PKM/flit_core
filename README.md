@@ -4,7 +4,7 @@ Backend API for **Flit** (PKM / personal knowledge management). FastAPI app with
 
 ## Requirements
 
-- **Python** ≥ 3.14  
+- **Python** ≥ 3.13  
 - **Database**: PostgreSQL (with pgvector for vector features) **or** Cloudflare D1 (serverless SQLite)  
 - **[uv](https://docs.astral.sh/uv/)** (recommended) or pip
 
@@ -15,7 +15,7 @@ Backend API for **Flit** (PKM / personal knowledge management). FastAPI app with
 ```bash
 git clone <repo-url>
 cd flit_core
-uv sync
+uv sync --extra dev
 ```
 
 ### 2. Environment
@@ -100,7 +100,8 @@ flit_core/
 | Note categories | `/note-categories` | Note category links |
 | Categories | `/categories` | Categories CRUD |
 | Relationships | `/relationships` | Relationship CRUD |
-| Subscriptions | `/subscriptions` | Subscribe (optional Cloudflare Turnstile) |
+| Subscriptions | `/subscriptions` | Subscribe/unsubscribe (Cloudflare Turnstile) |
+| Feedback | `/feedback` | Public feedback (Turnstile); admin list/reply |
 | MCP | `/mcp` | MCP server for agents (JSON-RPC tools + `flit://` resources; separate from `/api`) |
 | MCP OAuth | `/mcp/oauth` | OAuth authorization server for MCP clients (when enabled) |
 | MCP API keys | `/mcp/api-keys` | Create/list/revoke MCP API keys (uses main-app JWT; not under `/api`) |
@@ -154,7 +155,7 @@ API keys (`flit_mcp_…`) remain a fallback for clients that do not implement MC
 
 ## Tests
 
-From project root (after `uv sync`). Tests use in-memory SQLite:
+From project root (after `uv sync --extra dev`). Tests use in-memory SQLite:
 
 ```bash
 uv run pytest tests -v

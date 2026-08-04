@@ -8,8 +8,6 @@ from fastapi import status
 from config import settings
 from middleware.cors import is_mcp_cors_path
 
-pytest_plugins = ["test_mcp"]
-
 
 def test_is_mcp_cors_path():
     assert is_mcp_cors_path("/mcp")
@@ -38,7 +36,9 @@ def test_mcp_options_reflects_origin(mcp_enabled, test_client, origin):
     )
     assert response.status_code == status.HTTP_200_OK
     assert response.headers.get("access-control-allow-origin") == origin
-    assert response.headers.get("access-control-allow-credentials") == "true"
+    assert "access-control-allow-credentials" not in {
+        k.lower() for k in response.headers.keys()
+    } or response.headers.get("access-control-allow-credentials") != "true"
 
 
 def test_well_known_oauth_options_reflects_origin(mcp_enabled, test_client):

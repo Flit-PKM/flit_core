@@ -15,6 +15,8 @@ from models.note import Note
 from models.note_category import NoteCategory
 from models.notesearch import NoteSearch
 
+# ponytail: loads all indexed notes into Python + SequenceMatcher O(words²); upgrade to Postgres FTS/trigram when vaults grow.
+
 # Small stopwords to remove from stored content and optionally from query
 STOPWORDS = frozenset(
     {

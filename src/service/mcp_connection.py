@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
-
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -9,10 +7,7 @@ from exceptions import NotFoundError
 from flit_mcp.oauth.cimd import resolve_oauth_client
 from models.mcp_access_token import McpAccessToken
 from models.mcp_refresh_token import McpRefreshToken
-
-
-def _utcnow_naive() -> datetime:
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+from utc import utc_naive_now
 
 
 async def _resolve_client_name(
@@ -33,7 +28,7 @@ async def list_mcp_connections(
     session: AsyncSession,
     user_id: int,
 ) -> list[McpRefreshToken]:
-    now = _utcnow_naive()
+    now = utc_naive_now()
     result = await session.execute(
         select(McpRefreshToken)
         .where(
@@ -81,7 +76,7 @@ async def revoke_mcp_connection(
     if not refresh_row:
         raise NotFoundError("Connection not found")
 
-    refresh_row.revoked_at = _utcnow_naive()
+    refresh_row.revoked_at = utc_naive_now()
 
     access_result = await session.execute(
         select(McpAccessToken).where(

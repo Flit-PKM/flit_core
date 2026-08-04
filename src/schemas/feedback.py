@@ -20,12 +20,18 @@ class FeedbackCreate(BaseModel):
         description="Optional JSON context (e.g. page, version, source)",
         examples=[{"page": "settings", "version": "1.0.0"}],
     )
+    cf_turnstile_response: Optional[str] = Field(
+        None,
+        description="Cloudflare Turnstile response token (cf-turnstile-response)",
+        examples=["token-from-widget"],
+    )
 
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
                 "content": "Love the new sync feature!",
                 "context": {"source": "mobile", "app_version": "2.1.0"},
+                "cf_turnstile_response": "token-from-widget",
             },
         }
     )

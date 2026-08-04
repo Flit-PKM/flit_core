@@ -7,6 +7,7 @@ from threading import Lock
 from config import settings
 from exceptions import BusinessLogicError
 
+# ponytail: process-local sliding window; wrong under multi-worker — move to Redis or SlowAPI shared store.
 _lock = Lock()
 _buckets: dict[str, list[float]] = defaultdict(list)
 

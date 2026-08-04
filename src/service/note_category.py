@@ -30,10 +30,10 @@ async def link_note_category(
     link = NoteCategory(note_id=data.note_id, category_id=data.category_id)
     session.add(link)
     try:
-        await session.flush()
-        await session.refresh(link)
+        async with session.begin_nested():
+            await session.flush()
+            await session.refresh(link)
     except IntegrityError:
-        await session.rollback()
         raise ConflictError("Note already has this category") from None
     logger.info("NoteCategory linked: note_id=%s, category_id=%s", data.note_id, data.category_id)
     return link

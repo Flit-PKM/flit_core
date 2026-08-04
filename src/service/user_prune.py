@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 
 from sqlalchemy import and_, exists, not_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,15 +12,11 @@ from models.superuser import Superuser
 from models.user import User
 from service.billing import SUBSCRIPTION_STATUS_ACTIVE
 from service.user_hard_delete import hard_delete_user
-
-
-def _utc_naive_now() -> datetime:
-    """Naive UTC instant (matches users.* timestamp without time zone columns)."""
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+from utc import utc_naive_now
 
 
 def _stale_predicate(inactive_for_days: int):
-    cutoff = _utc_naive_now() - timedelta(days=inactive_for_days)
+    cutoff = utc_naive_now() - timedelta(days=inactive_for_days)
     return and_(User.is_verified.is_(False), User.last_login < cutoff)
 
 

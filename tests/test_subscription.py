@@ -202,11 +202,15 @@ async def test_unsubscribe_success(test_client, test_db_session: AsyncSession):
     """DELETE /subscriptions/ with email on list returns 204."""
     await create_subscription(test_db_session, "unsub@example.com")
     await test_db_session.commit()
-    response = test_client.request(
-        "DELETE",
-        "/api/subscriptions/",
-        json={"email": "unsub@example.com"},
-    )
+    with patch("routes.subscription.verify_turnstile_token", new_callable=AsyncMock):
+        response = test_client.request(
+            "DELETE",
+            "/api/subscriptions/",
+            json={
+                "email": "unsub@example.com",
+                "cf_turnstile_response": "mock-token",
+            },
+        )
     assert response.status_code == status.HTTP_204_NO_CONTENT
     found = await get_subscription_by_email(test_db_session, "unsub@example.com")
     assert found is None
@@ -215,13 +219,28 @@ async def test_unsubscribe_success(test_client, test_db_session: AsyncSession):
 @pytest.mark.asyncio
 async def test_unsubscribe_email_not_on_list_returns_404(test_client):
     """DELETE /subscriptions/ with email not on list returns 404."""
+    with patch("routes.subscription.verify_turnstile_token", new_callable=AsyncMock):
+        response = test_client.request(
+            "DELETE",
+            "/api/subscriptions/",
+            json={
+                "email": "notonlist@example.com",
+                "cf_turnstile_response": "mock-token",
+            },
+        )
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+    assert "not on list" in response.json().get("detail", "").lower()
+
+
+@pytest.mark.asyncio
+async def test_unsubscribe_without_turnstile_returns_400(test_client):
+    """DELETE /subscriptions/ without Turnstile token returns 400."""
     response = test_client.request(
         "DELETE",
         "/api/subscriptions/",
-        json={"email": "notonlist@example.com"},
+        json={"email": "unsub@example.com", "cf_turnstile_response": None},
     )
-    assert response.status_code == status.HTTP_404_NOT_FOUND
-    assert "not on list" in response.json().get("detail", "").lower()
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
 
 
 # --- Turnstile module tests (mocked httpx) ---

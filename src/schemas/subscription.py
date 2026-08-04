@@ -57,16 +57,24 @@ class SubscriptionRead(BaseModel):
 
 
 class SubscriptionDelete(BaseModel):
-    """Payload for DELETE /subscriptions: email to remove (must be on list)."""
+    """Payload for DELETE /subscriptions: email + Turnstile token."""
 
     email: EmailStr = Field(
         ...,
         description="Email address to remove from the list",
         examples=["user@example.com"],
     )
+    cf_turnstile_response: Optional[str] = Field(
+        None,
+        description="Cloudflare Turnstile response token (cf-turnstile-response)",
+        examples=["token-from-widget"],
+    )
 
     model_config = ConfigDict(
         json_schema_extra={
-            "example": {"email": "user@example.com"},
+            "example": {
+                "email": "user@example.com",
+                "cf_turnstile_response": "token-from-widget",
+            },
         }
     )

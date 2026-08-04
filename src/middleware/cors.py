@@ -31,9 +31,9 @@ def mcp_cors_reflect_enabled() -> bool:
 
 
 def build_mcp_cors_headers(request: Request, origin: str) -> dict[str, str]:
+    # Bearer auth for MCP; do not pair reflect-any Origin with credentials.
     headers: dict[str, str] = {
         "Access-Control-Allow-Origin": origin,
-        "Access-Control-Allow-Credentials": "true",
         "Vary": "Origin",
     }
     if request.method == "OPTIONS":

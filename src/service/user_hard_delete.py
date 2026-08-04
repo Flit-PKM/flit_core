@@ -11,6 +11,14 @@ from models.chunk import Chunk
 from models.connected_app import ConnectedApp
 from models.connection_code import ConnectionCode
 from models.feedback_response import FeedbackResponse
+from models.mcp_access_token import McpAccessToken
+from models.mcp_api_key import McpApiKey
+from models.mcp_oauth_authorization_code import (
+    McpOAuthAuthorizationCode,
+    McpOAuthPendingAuthorization,
+)
+from models.mcp_oauth_registered_client import McpOAuthRegisteredClient
+from models.mcp_refresh_token import McpRefreshToken
 from models.note import Note
 from models.note_category import NoteCategory
 from models.notesearch import NoteSearch
@@ -24,6 +32,24 @@ from models.user import User
 
 async def hard_delete_user(db: AsyncSession, user_id: int) -> None:
     """Remove user and owned data. Caller must enforce business rules (prune/superuser checks)."""
+    await db.execute(delete(McpRefreshToken).where(McpRefreshToken.user_id == user_id))
+    await db.execute(delete(McpAccessToken).where(McpAccessToken.user_id == user_id))
+    await db.execute(delete(McpApiKey).where(McpApiKey.user_id == user_id))
+    await db.execute(
+        delete(McpOAuthAuthorizationCode).where(
+            McpOAuthAuthorizationCode.user_id == user_id
+        )
+    )
+    await db.execute(
+        delete(McpOAuthPendingAuthorization).where(
+            McpOAuthPendingAuthorization.user_id == user_id
+        )
+    )
+    await db.execute(
+        delete(McpOAuthRegisteredClient).where(
+            McpOAuthRegisteredClient.owner_user_id == user_id
+        )
+    )
     await db.execute(
         delete(OAuthRefreshToken).where(OAuthRefreshToken.user_id == user_id)
     )

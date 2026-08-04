@@ -23,6 +23,8 @@ from models.mcp_oauth_authorization_code import (
     McpOAuthPendingAuthorization,
 )
 from models.mcp_refresh_token import McpRefreshToken
+from public_url import public_base_url
+from utc import as_utc_aware, utcnow
 
 MCP_TOKEN_TYPE = "mcp"
 MCP_API_KEY_PREFIX = "flit_mcp_"
@@ -30,32 +32,8 @@ MCP_API_KEY_PREFIX = "flit_mcp_"
 logger = get_logger(__name__)
 
 
-def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
-
-
 def _naive(dt: datetime) -> datetime:
-    return dt.astimezone(timezone.utc).replace(tzinfo=None)
-
-
-def _as_utc_aware(dt: datetime) -> datetime:
-    if dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
-    return dt
-
-
-def public_base_url() -> str:
-    """Public URL of this API (MCP OAuth issuer, email links, etc.)."""
-    configured = (settings.PUBLIC_BASE_URL or "").strip().rstrip("/")
-    if configured:
-        return configured
-    if settings.ENVIRONMENT == "development":
-        return "http://127.0.0.1:8000"
-    if settings.ENVIRONMENT == "test":
-        return "http://testserver"
-    raise ValidationError(
-        "PUBLIC_BASE_URL must be set when ENVIRONMENT is production"
-    )
+    return as_utc_aware(dt).replace(tzinfo=None)
 
 
 def mcp_issuer() -> str:
@@ -188,7 +166,7 @@ async def create_pending_authorization(
 ) -> McpOAuthPendingAuthorization:
     scopes = normalize_requested_scope(scope)
     expires_at = _naive(
-        _utcnow() + timedelta(minutes=settings.MCP_AUTHORIZATION_CODE_EXPIRE_MINUTES)
+        utcnow() + timedelta(minutes=settings.MCP_AUTHORIZATION_CODE_EXPIRE_MINUTES)
     )
     row = McpOAuthPendingAuthorization(
         state=state,
@@ -203,7 +181,7 @@ async def create_pending_authorization(
         code_challenge_method=code_challenge_method,
         user_id=None,
         expires_at=expires_at,
-        created_at=_naive(_utcnow()),
+        created_at=_naive(utcnow()),
     )
     session.add(row)
     await session.flush()
@@ -222,7 +200,7 @@ async def get_pending_by_state(
     row = result.scalar_one_or_none()
     if not row:
         return None
-    if _as_utc_aware(row.expires_at) < _utcnow():
+    if as_utc_aware(row.expires_at) < utcnow():
         return None
     return row
 
@@ -253,7 +231,7 @@ async def issue_authorization_code(
         raise AuthenticationError("User not authenticated for authorization")
     code_str = secrets.token_urlsafe(32)
     expires_at = _naive(
-        _utcnow() + timedelta(minutes=settings.MCP_AUTHORIZATION_CODE_EXPIRE_MINUTES)
+        utcnow() + timedelta(minutes=settings.MCP_AUTHORIZATION_CODE_EXPIRE_MINUTES)
     )
     row = McpOAuthAuthorizationCode(
         code=code_str,
@@ -266,7 +244,7 @@ async def issue_authorization_code(
         code_challenge_method=pending.code_challenge_method,
         expires_at=expires_at,
         used_at=None,
-        created_at=_naive(_utcnow()),
+        created_at=_naive(utcnow()),
     )
     session.add(row)
     await session.delete(pending)
@@ -319,7 +297,7 @@ async def exchange_authorization_code(
         raise AuthenticationError("Invalid authorization code")
     if auth_code.used_at is not None:
         raise AuthenticationError("Authorization code already used")
-    if _as_utc_aware(auth_code.expires_at) < _utcnow():
+    if as_utc_aware(auth_code.expires_at) < utcnow():
         raise AuthenticationError("Authorization code expired")
     if auth_code.client_id != client_id:
         raise AuthenticationError("Invalid client_id")
@@ -336,7 +314,7 @@ async def exchange_authorization_code(
 
     from flit_mcp.oauth.cimd import resolve_oauth_client
 
-    auth_code.used_at = _naive(_utcnow())
+    auth_code.used_at = _naive(utcnow())
     client_name: str | None = None
     client = await resolve_oauth_client(session, auth_code.client_id)
     if client:
@@ -371,11 +349,11 @@ async def _issue_mcp_tokens(
         "aud": aud,
     }
     access_jwt = create_access_token(token_data, expires_delta=expires_delta)
-    expires_at = _naive(_utcnow() + expires_delta)
+    expires_at = _naive(utcnow() + expires_delta)
 
     refresh_str = secrets.token_urlsafe(32)
     refresh_expires = _naive(
-        _utcnow() + timedelta(days=settings.MCP_REFRESH_TOKEN_EXPIRE_DAYS)
+        utcnow() + timedelta(days=settings.MCP_REFRESH_TOKEN_EXPIRE_DAYS)
     )
     refresh_row = McpRefreshToken(
         token=refresh_str,
@@ -385,7 +363,7 @@ async def _issue_mcp_tokens(
         client_name=client_name,
         expires_at=refresh_expires,
         revoked_at=None,
-        created_at=_naive(_utcnow()),
+        created_at=_naive(utcnow()),
     )
     session.add(refresh_row)
     await session.flush()
@@ -398,7 +376,7 @@ async def _issue_mcp_tokens(
         expires_at=expires_at,
         refresh_token_id=refresh_row.id,
         revoked=False,
-        created_at=_naive(_utcnow()),
+        created_at=_naive(utcnow()),
     )
     session.add(access_row)
     await session.flush()
@@ -420,7 +398,7 @@ async def refresh_mcp_access_token(
         raise AuthenticationError("Invalid refresh token")
     if refresh_row.revoked_at is not None:
         raise AuthenticationError("Refresh token revoked")
-    if _as_utc_aware(refresh_row.expires_at) < _utcnow():
+    if as_utc_aware(refresh_row.expires_at) < utcnow():
         raise AuthenticationError("Refresh token expired")
 
     result = await session.execute(
@@ -432,7 +410,7 @@ async def refresh_mcp_access_token(
     for old_access in result.scalars().all():
         old_access.revoked = True
 
-    refresh_row.revoked_at = _naive(_utcnow())
+    refresh_row.revoked_at = _naive(utcnow())
     return await _issue_mcp_tokens(
         session,
         user_id=refresh_row.user_id,
@@ -547,7 +525,7 @@ async def validate_mcp_access_token(
             jti,
         )
         return None
-    if _as_utc_aware(row.expires_at) < _utcnow():
+    if as_utc_aware(row.expires_at) < utcnow():
         logger.debug(
             "MCP token validation failed: expired at %s",
             row.expires_at,

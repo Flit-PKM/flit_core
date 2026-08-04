@@ -151,7 +151,9 @@ Thumbs.db
 
 # uv
 .uv/
+.uv_cache/
 
 # Temporary files
 *.tmp
 *.temp
+.cursor/

@@ -23,20 +23,11 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     return encoded_jwt
 
 
-def verify_token(token: str) -> Optional[str]:
-    """Verify a JWT token and return the username if valid."""
-    try:
-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
-        username: str = payload.get("sub")
-        if username is None:
-            return None
-        return username
-    except JWTError:
-        return None
-
-
 def decode_login_token_claims(token: str) -> Optional[dict[str, Any]]:
-    """Decode login JWT and return claims if signature and exp are valid."""
+    """Decode login JWT and return claims if signature and exp are valid.
+
+    Login tokens put the user's email in ``sub`` (not user_id).
+    """
     try:
         return jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
     except JWTError:

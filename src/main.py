@@ -15,13 +15,18 @@ import uvicorn
 
 
 class SpaStaticFiles(StaticFiles):
-    """StaticFiles that serves index.html for unknown paths (SPA client-side routing)."""
+    """StaticFiles for SvelteKit adapter-static: path.html then 200.html SPA fallback."""
 
     def lookup_path(self, path: str):
         full_path, stat_result = super().lookup_path(path)
-        if stat_result is None:
-            return super().lookup_path("index.html")
-        return full_path, stat_result
+        if stat_result is not None:
+            return full_path, stat_result
+        normalized = path.rstrip("/")
+        if normalized and not normalized.endswith(".html"):
+            full_path, stat_result = super().lookup_path(f"{normalized}.html")
+            if stat_result is not None:
+                return full_path, stat_result
+        return super().lookup_path("200.html")
 
 from routes.admin import router as admin_router
 from routes.admin_webhook import router as admin_webhook_router
@@ -267,7 +272,7 @@ app.include_router(vault_markdown_router, prefix="/api")
 register_mcp_openapi(app)
 register_mcp(app)
 
-# Mount SPA at / (after all API routes; unknown paths fall back to index.html for client-side routing)
+# Mount SPA at / (after all API routes; unknown paths → path.html or 200.html for client routing)
 if webapp_dir.is_dir():
     app.mount(
         "/",

@@ -13,19 +13,9 @@ from exceptions import AuthenticationError
 from logging_config import get_logger
 from models.oauth_access_token import OAuthAccessToken
 from models.oauth_refresh_token import OAuthRefreshToken
+from utc import as_utc_aware, utcnow
 
 logger = get_logger(__name__)
-
-
-def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
-
-
-def _as_utc_aware(dt: datetime) -> datetime:
-    """Return dt as timezone-aware UTC (e.g. for SQLite-naive datetimes)."""
-    if dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
-    return dt
 
 
 async def issue_tokens_for_connected_app(
@@ -94,7 +84,7 @@ async def refresh_access_token(
     if refresh_token.revoked_at:
         raise AuthenticationError("Refresh token revoked")
 
-    if _as_utc_aware(refresh_token.expires_at) < _utcnow():
+    if as_utc_aware(refresh_token.expires_at) < utcnow():
         raise AuthenticationError("Refresh token expired")
 
     result = await session.execute(
@@ -210,8 +200,11 @@ async def validate_access_token(
             select(OAuthAccessToken).where(OAuthAccessToken.token == token)
         )
         db_token = result.scalar_one_or_none()
-
-        if db_token and db_token.revoked:
+        if not db_token or db_token.revoked:
+            return None
+        if as_utc_aware(db_token.expires_at) < utcnow():
+            return None
+        if db_token.connected_app_id != connected_app_id or db_token.user_id != user_id:
             return None
 
         return (connected_app_id, user_id)

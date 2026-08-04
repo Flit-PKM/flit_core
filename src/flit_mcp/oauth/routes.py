@@ -37,7 +37,6 @@ from service.mcp_oauth import (
     get_pending_by_state,
     issue_authorization_code,
     mcp_issuer,
-    public_base_url,
     redirect_uri_allowed,
     redirect_uri_is_valid_scheme,
     refresh_mcp_access_token,
@@ -45,6 +44,7 @@ from service.mcp_oauth import (
     set_pending_scopes,
     set_pending_user,
 )
+from public_url import public_base_url
 from service.user import create_user, get_user_by_email, touch_last_login
 from auth.username_from_email import derive_username_from_email
 from schemas.mcp_oauth import (
@@ -83,6 +83,15 @@ def _google_enabled() -> bool:
     )
 
 
+def _require_oauth_session_cookie(request: Request, state: str) -> None:
+    """Bind browser OAuth POSTs to the authorize cookie to block login CSRF."""
+    if request.cookies.get(MCP_SESSION_COOKIE) != state:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid or mismatched OAuth session",
+        )
+
+
 def _html_for_pending(
     pending,
     client,
@@ -111,7 +120,15 @@ def _html_for_pending(
             register_url=public_base_url(),
         )
     resp = HTMLResponse(html)
-    resp.set_cookie(MCP_SESSION_COOKIE, pending.state, httponly=True, samesite="lax", max_age=600)
+    secure = public_base_url().lower().startswith("https://")
+    resp.set_cookie(
+        MCP_SESSION_COOKIE,
+        pending.state,
+        httponly=True,
+        samesite="lax",
+        secure=secure,
+        max_age=600,
+    )
     return resp
 
 
@@ -212,11 +229,6 @@ async def authorize(
         code_challenge=code_challenge,
         code_challenge_method=code_challenge_method,
     )
-
-    cookie_state = request.cookies.get(MCP_SESSION_COOKIE)
-    if cookie_state == state and pending.user_id:
-        return _html_for_pending(pending, client)
-
     return _html_for_pending(pending, client)
 
 
@@ -230,6 +242,7 @@ async def oauth_login(
     db: AsyncSession = Depends(get_async_session),
 ):
     """Browser form POST: authenticate user during MCP OAuth (HTML flow, not for API clients)."""
+    _require_oauth_session_cookie(request, state)
     pending = await get_pending_by_state(db, state)
     if not pending:
         raise HTTPException(status_code=400, detail="Invalid or expired authorization session")
@@ -265,6 +278,7 @@ async def oauth_consent(
     db: AsyncSession = Depends(get_async_session),
 ):
     """Browser form POST: approve or deny MCP OAuth scopes (HTML flow, not for API clients)."""
+    _require_oauth_session_cookie(request, state)
     pending = await get_pending_by_state(db, state)
     if not pending:
         raise HTTPException(status_code=400, detail="Invalid or expired authorization session")
@@ -333,10 +347,12 @@ async def google_start(state: str = Query(...)):
 
 @router.get("/callback/google")
 async def google_callback(
+    request: Request,
     code: str = Query(...),
     state: str = Query(...),
     db: AsyncSession = Depends(get_async_session),
 ):
+    _require_oauth_session_cookie(request, state)
     pending = await get_pending_by_state(db, state)
     if not pending:
         raise HTTPException(status_code=400, detail="Invalid or expired authorization session")
