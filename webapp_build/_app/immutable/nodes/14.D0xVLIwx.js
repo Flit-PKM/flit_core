@@ -1,46 +1,4 @@
-<!doctype html>
-<html lang="en">
-	<head>
-		<meta charset="utf-8" />
-		<meta name="viewport" content="width=device-width, initial-scale=1" />
-		
-		<link href="/_app/immutable/assets/0.BVyqqWNs.css" rel="stylesheet">
-		<link rel="modulepreload" href="/_app/immutable/entry/start.DWkE8aLP.js">
-		<link rel="modulepreload" href="/_app/immutable/chunks/C0wXvZ7b.js">
-		<link rel="modulepreload" href="/_app/immutable/chunks/Dj-zb0-c.js">
-		<link rel="modulepreload" href="/_app/immutable/chunks/BUApaBEI.js">
-		<link rel="modulepreload" href="/_app/immutable/entry/app.BkXBH3vK.js">
-		<link rel="modulepreload" href="/_app/immutable/chunks/C-k-34hl.js">
-		<link rel="modulepreload" href="/_app/immutable/chunks/GbzhlkQU.js">
-		<link rel="modulepreload" href="/_app/immutable/chunks/BhFoj6Hu.js">
-		<link rel="modulepreload" href="/_app/immutable/chunks/DOYGn4fm.js">
-		<link rel="modulepreload" href="/_app/immutable/nodes/0.CclM09Fx.js">
-		<link rel="modulepreload" href="/_app/immutable/chunks/C0m4jefc.js">
-		<link rel="modulepreload" href="/_app/immutable/chunks/BEHhoMJv.js">
-		<link rel="modulepreload" href="/_app/immutable/chunks/CmTDxhag.js">
-		<link rel="modulepreload" href="/_app/immutable/chunks/KeBEqN6D.js">
-		<link rel="modulepreload" href="/_app/immutable/chunks/Be-czBq_.js">
-		<link rel="modulepreload" href="/_app/immutable/chunks/YYAwvUT0.js">
-		<link rel="modulepreload" href="/_app/immutable/chunks/CiKv1asH.js">
-		<link rel="modulepreload" href="/_app/immutable/chunks/t1AwyCdB.js">
-		<link rel="modulepreload" href="/_app/immutable/nodes/14.D0xVLIwx.js">
-		<link rel="modulepreload" href="/_app/immutable/chunks/CnK6B7hP.js"><!--12qhfyh--><link rel="icon" type="image/svg+xml" href="/images/flit_app_logo.svg"/> <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png"/> <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png"/> <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png"/> <link rel="manifest" href="/site.webmanifest"/> <link rel="canonical" href="http://sveltekit-prerender/terms"/> <!--[--><script defer src="https://analytics.bmd-studios.com/script.js" data-website-id="90bda04d-f880-47b0-ada3-2f54db6d45bb"></script><!----><!--]--><!----><!--1t153bb--><meta name="description" content="Flit Web Terms of Service and Privacy Policy. Privacy-first personal knowledge management."/> <!--[!--><!--]--> <meta property="og:type" content="website"/> <meta property="og:site_name" content="Flit Web"/> <meta property="og:title" content="Terms of Service &amp; Privacy Policy - Flit Web"/> <meta property="og:description" content="Flit Web Terms of Service and Privacy Policy. Privacy-first personal knowledge management."/> <meta property="og:url" content="http://sveltekit-prerender/terms"/> <meta property="og:image" content="http://sveltekit-prerender/Twitter_card3.png"/> <meta name="twitter:card" content="summary_large_image"/> <meta name="twitter:title" content="Terms of Service &amp; Privacy Policy - Flit Web"/> <meta name="twitter:description" content="Flit Web Terms of Service and Privacy Policy. Privacy-first personal knowledge management."/> <meta name="twitter:image" content="http://sveltekit-prerender/Twitter_card3.png"/><!----><title>Terms of Service &amp; Privacy Policy - Flit Web</title>
-	</head>
-	<body data-sveltekit-preload-data="hover">
-		<script>
-			// Global error handler for uncaught errors
-			window.addEventListener('error', (event) => {
-				console.error('Global uncaught error:', event.error);
-				// In production, you'd send this to your error tracking service
-			});
-
-			window.addEventListener('unhandledrejection', (event) => {
-				console.error('Global unhandled promise rejection:', event.reason);
-				// In production, you'd send this to your error tracking service
-				event.preventDefault();
-			});
-		</script>
-		<div style="display: contents"><!--[--><!--[--><!----><div class="app"><nav><div class="nav__container"><a href="/" class="nav__brand"><img src="/images/flit_app_logo.svg" alt="Flit" class="icon_md"/> <span class="heavy">Flit Web</span></a> <div class="nav__links nav__links--center"><!--[--><a href="/about" class="link ">About</a><a href="/terms" class="link link--active">Terms</a><a href="/billing" class="link ">Billing</a><!--]--></div> <div class="nav__links nav__links--end"><!--[!--><a href="/login" class="btn">Sign in</a> <a href="/register" class="btn btn-primary">Sign up</a><!--]--></div> <button type="button" class="nav__mobile-trigger" aria-expanded="false" aria-label="Main menu"><svg class="icon_md" fill="none" viewBox="0 0 24 24" stroke="currentColor"><!--[!--><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path><!--]--></svg></button> <!--[!--><!--]--></div></nav> <main class="main"><!--[!--><!----><!----> <h1>Flit Terms of Service</h1> <div class="card prose"><p class="card__meta">Effective Date: February 05, 2026</p> <p>Welcome to Flit! We're delighted you've found your way to our privacy-first personal knowledge
+import"../chunks/GbzhlkQU.js";import{aE as g,aF as v,av as u,aa as _,aG as b,aH as d,g as y,aI as w,ah as S,aJ as T,p as A,f as k,a as F,t as P,b as W,c as C,s as p,d as h,r as m}from"../chunks/Dj-zb0-c.js";import{r as I,s as D}from"../chunks/BEHhoMJv.js";import{S as Y}from"../chunks/CnK6B7hP.js";function x(o=!1){const t=g,e=t.l.u;if(!e)return;let s=()=>w(t.s);if(o){let i=0,a={};const n=S(()=>{let l=!1;const r=t.s;for(const c in r)r[c]!==a[c]&&(a[c]=r[c],l=!0);return l&&i++,i});s=()=>y(n)}e.b.length&&v(()=>{f(t,s),d(e.b)}),u(()=>{const i=_(()=>e.m.map(b));return()=>{for(const a of i)typeof a=="function"&&a()}}),e.a.length&&u(()=>{f(t,s),d(e.a)})}function f(o,t){if(o.l.s)for(const e of o.l.s)y(e);t()}const O=!0,H=Object.freeze(Object.defineProperty({__proto__:null,prerender:O},Symbol.toStringTag,{value:"Module"}));T();var U=k(`<!> <h1>Flit Terms of Service</h1> <div class="card prose"><p class="card__meta">Effective Date: February 05, 2026</p> <p>Welcome to Flit! We're delighted you've found your way to our privacy-first personal knowledge
 		management ecosystem. These Terms of Service ("Terms") are a straightforward agreement between
 		you and the operator of Flit ("we," "us," or "our")—a sole developer building tools to help you
 		capture, connect, and reflect on your thoughts securely.</p> <p class="card__meta">By joining the waitlist, creating an account, or using any part of Flit (the "Service"—including
@@ -77,30 +35,4 @@
 			safeguards to protect your information in accordance with South African law (POPIA).</p></section> <section><h2>5. Your Rights</h2> <p class="card__meta">Under POPIA and applicable laws, you may:</p> <ul class="card__meta"><li>Access, correct, or delete your personal data.</li> <li>Object to or restrict certain processing.</li> <li>Withdraw consent where we rely on it.</li> <li>Lodge a complaint with the Information Regulator (South Africa).</li></ul> <p class="card__meta">To exercise these rights, contact us at <a href="mailto:support@flit-pkm.com">support@flit-pkm.com</a>.</p></section> <section><h2>6. Data Retention</h2> <ul class="card__meta"><li><strong>Account data:</strong> Kept while your account is active; deleted on request or after
 				prolonged inactivity.</li> <li><strong>Content:</strong> Deleted when you delete it or your account.</li> <li><strong>Transaction records:</strong> Kept as required for tax/legal purposes.</li></ul></section> <section><h2>7. Children's Privacy</h2> <p class="card__meta">Flit is not directed at children under 13. We do not knowingly collect personal data from
 			children. If we learn we have, we'll delete it promptly.</p></section> <section><h2>8. Changes to This Policy</h2> <p class="card__meta">We may update this Policy occasionally. Significant changes will be notified via email or
-			in-app notice.</p></section> <section><h2>9. Contact Us</h2> <p class="card__meta">Questions or requests? Email <a href="mailto:support@flit-pkm.com">support@flit-pkm.com</a>.</p> <p class="card__meta">Thank you for choosing a tool that respects your privacy as much as you do.</p></section> <div><a href="/" class="link">← Back to Home</a></div></div><!----><!--]--><!----></main> <!--[!--><!--]--><!----> <footer><div class="container"><div class="footer__links"><a href="/about" class="link">About</a> <a href="/terms" class="link">Terms</a></div> <p>"But seek first the kingdom of God and His righteousness, and all these things shall be
-				added to you." - Matthew 6:33</p> <p>© 2026 Flit-PKM and all related apps are brought to you by <a href="https://bmd-studios.com" target="_blank" rel="noopener noreferrer">BMD-Studios</a></p></div></footer></div><!----><!--]--> <!--[!--><!--]--><!--]-->
-			
-			<script>
-				{
-					__sveltekit_8t52s2 = {
-						base: ""
-					};
-
-					const element = document.currentScript.parentElement;
-
-					Promise.all([
-						import("/_app/immutable/entry/start.DWkE8aLP.js"),
-						import("/_app/immutable/entry/app.BkXBH3vK.js")
-					]).then(([kit, app]) => {
-						kit.start(app, element, {
-							node_ids: [0, 14],
-							data: [null,null],
-							form: null,
-							error: null
-						});
-					});
-				}
-			</script>
-		</div>
-	</body>
-</html>
+			in-app notice.</p></section> <section><h2>9. Contact Us</h2> <p class="card__meta">Questions or requests? Email <a href="mailto:support@flit-pkm.com">support@flit-pkm.com</a>.</p> <p class="card__meta">Thank you for choosing a tool that respects your privacy as much as you do.</p></section> <div><a class="link">← Back to Home</a></div></div>`,1);function L(o,t){A(t,!1);const e="Flit Web Terms of Service and Privacy Policy. Privacy-first personal knowledge management.";x();var s=U(),i=F(s);Y(i,{title:"Terms of Service & Privacy Policy - Flit Web",description:e});var a=p(i,8),n=p(h(a),22),l=h(n);m(n),m(a),P(r=>D(l,"href",r),[()=>I("/")]),W(o,s),C()}export{L as component,H as universal};
