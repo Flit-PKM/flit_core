@@ -27,6 +27,14 @@ async def create_subscription(db: AsyncSession, email: str) -> Subscription:
     await db.flush()
     await db.refresh(subscription)
     logger.info(f"Subscription created: {subscription.id} - {normalized}")
+    from service.email_template import send_templated_email
+
+    await send_templated_email(
+        db,
+        "mailing_list_confirm",
+        normalized,
+        {"email": normalized},
+    )
     return subscription
 
 

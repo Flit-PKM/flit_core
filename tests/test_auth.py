@@ -246,6 +246,71 @@ async def test_invalid_token(
     assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
 
+@pytest.mark.asyncio
+async def test_refresh_issues_new_token_and_keeps_old(
+    test_client: AsyncClient,
+    test_db_session: AsyncSession,
+    sample_user_data: dict,
+):
+    """Refresh returns a new JWT; the previous token stays valid until its own exp."""
+    user_data = sample_user_data.copy()
+    password = user_data.pop("password")
+    user_data["password_hash"] = get_password_hash(password)
+    await create_user(test_db_session, user_data)
+    await test_db_session.commit()
+
+    old_token = _login(test_client, sample_user_data["email"], password)
+    response = test_client.post(
+        "/api/auth/refresh",
+        headers={"Authorization": f"Bearer {old_token}"},
+    )
+    assert response.status_code == status.HTTP_200_OK
+    data = response.json()
+    new_token = data["access_token"]
+    assert data["token_type"] == "bearer"
+    assert new_token
+    assert new_token != old_token
+
+    me = test_client.get("/api/user/", headers={"Authorization": f"Bearer {new_token}"})
+    assert me.status_code == status.HTTP_200_OK
+
+    still = test_client.get("/api/user/", headers={"Authorization": f"Bearer {old_token}"})
+    assert still.status_code == status.HTTP_200_OK
+
+
+@pytest.mark.asyncio
+async def test_refresh_after_logout_is_unauthorized(
+    test_client: AsyncClient,
+    test_db_session: AsyncSession,
+    sample_user_data: dict,
+):
+    """A revoked login JWT cannot be used to slide the session."""
+    user_data = sample_user_data.copy()
+    password = user_data.pop("password")
+    user_data["password_hash"] = get_password_hash(password)
+    await create_user(test_db_session, user_data)
+    await test_db_session.commit()
+
+    token = _login(test_client, sample_user_data["email"], password)
+    lo = test_client.post("/api/auth/logout", headers={"Authorization": f"Bearer {token}"})
+    assert lo.status_code == status.HTTP_200_OK
+
+    response = test_client.post(
+        "/api/auth/refresh",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+
+@pytest.mark.asyncio
+async def test_refresh_invalid_bearer_unauthorized(test_client: AsyncClient):
+    response = test_client.post(
+        "/api/auth/refresh",
+        headers={"Authorization": "Bearer invalid_token"},
+    )
+    assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+
 def _login(test_client, email: str, password: str) -> str:
     """Login and return access token."""
     r = test_client.post(

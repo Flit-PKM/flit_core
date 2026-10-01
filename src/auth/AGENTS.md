@@ -14,6 +14,7 @@ Login JWT, password hashing, FastAPI dependencies, typed one-shot tokens (verify
 
 - Login path uses email in `sub`; never treat OAuth/MCP tokens as login JWTs.
 - Revocation checks `jti` against `revoked_jwts`.
+- Sliding renewal is `POST /auth/refresh` (still-valid login JWT only). Do not mix with `/oauth` refresh.
 
 ## Prefer / avoid
 

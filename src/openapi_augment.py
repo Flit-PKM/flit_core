@@ -17,6 +17,7 @@ CORE_DESCRIPTION = """Flit PKM backend API.
    - `POST /api/auth/login-google` — Google ID token.
 3. Response shape: `{"access_token": "<jwt>", "token_type": "bearer"}`.
 4. Call protected routes with header: `Authorization: Bearer <access_token>`.
+5. **Sliding renewal:** `POST /api/auth/refresh` with the current Bearer token issues a new login JWT (still-valid tokens only; not OAuth/MCP refresh). Replace the stored token; the previous JWT stays valid until its own `exp`.
 
 **Connected apps / sync** use OAuth access tokens from `POST /api/connect/exchange` (same Bearer header).
 **MCP** (when enabled) accepts MCP OAuth tokens or user API keys (`flit_mcp_…`).
@@ -47,7 +48,7 @@ API_TAG_DESCRIPTIONS: dict[str, str] = {
     "authentication": "Register, login, logout; JWT issuance.",
     "user": "Current user profile and settings.",
     "users": "Superuser user administration.",
-    "admin": "Superuser dashboard and newsletters.",
+    "admin": "Superuser dashboard, newsletters, and email templates.",
     "access-codes": "Beta/access code create, list, revoke, activate.",
     "notes": "PKM notes CRUD.",
     "categories": "Note categories CRUD.",

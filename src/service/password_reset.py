@@ -13,8 +13,8 @@ from config import settings
 from exceptions import ValidationError
 from logging_config import get_logger
 from models.user import User
-from service.email import send_email
 from public_url import public_base_url
+from service.email_template import send_templated_email
 from service.user import get_user, get_user_by_email
 
 logger = get_logger(__name__)
@@ -58,29 +58,16 @@ async def request_password_reset(db: AsyncSession, email: str) -> Tuple[bool, Op
     token = create_password_reset_token(user.id)
     reset_link = f"{base_url}/api/password-reset/{token}/confirm"
 
-    subject = "Reset your Flit password"
-    body_text = (
-        f"Hi {user.username or user.email},\n\n"
-        f"We received a request to reset your password. Click the link below to set a new one:\n\n"
-        f"{reset_link}\n\n"
-        f"This link expires in {settings.PASSWORD_RESET_EXPIRE_HOURS} hour(s).\n\n"
-        f"If you did not request this, you can ignore this email. Your password will not change.\n\n"
-        f"— Flit"
-    )
-    body_html = (
-        f"<p>Hi {user.username or user.email},</p>\n"
-        f"<p>We received a request to reset your password. Click the link below to set a new one:</p>\n"
-        f"<p><a href=\"{reset_link}\">{reset_link}</a></p>\n"
-        f"<p>This link expires in {settings.PASSWORD_RESET_EXPIRE_HOURS} hour(s).</p>\n"
-        f"<p>If you did not request this, you can ignore this email. Your password will not change.</p>\n"
-        f"<p>— Flit</p>"
-    )
-
-    ok = await send_email(
-        to=user.email,
-        subject=subject,
-        body_text=body_text,
-        body_html=body_html,
+    ok = await send_templated_email(
+        db,
+        "password_reset",
+        user.email,
+        {
+            "username": user.username or user.email,
+            "email": user.email,
+            "link": reset_link,
+            "expire_hours": str(settings.PASSWORD_RESET_EXPIRE_HOURS),
+        },
     )
     if ok:
         _password_reset_cooldown[normalized_email] = now

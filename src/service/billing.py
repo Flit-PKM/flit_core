@@ -669,6 +669,22 @@ async def _handle_subscription_event(
                 "dodo_event_type": event_type,
             },
         )
+        from service.email_template import send_templated_email
+        from service.user import get_user
+
+        user = await get_user(db, user_id)
+        if user:
+            await send_templated_email(
+                db,
+                admin_event,
+                user.email,
+                {
+                    "username": user.username or user.email,
+                    "email": user.email,
+                    "status": status or "",
+                    "product_id": product_id or "",
+                },
+            )
 
 
 def _map_subscription_status(event_type: str, status: Optional[str]) -> str:

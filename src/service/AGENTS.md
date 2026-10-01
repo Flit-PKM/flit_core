@@ -10,6 +10,7 @@ Business logic for notes, sync, billing, OAuth, MCP tokens, purge, newsletters.
 - `oauth.py` / `mcp_oauth.py` — connected-app vs MCP token issuance
 - `user_hard_delete.py` / `user_prune.py` / `purge.py` — destructive cleanup
 - `newsletter_campaign.py` — admin mailing-list sends
+- `email_template.py` — catalog + DB overrides for user transactional mail
 
 ## Invariants
 

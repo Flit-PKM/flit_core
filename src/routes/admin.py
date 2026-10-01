@@ -18,6 +18,7 @@ from schemas.admin_stats import (
     AdminStatsSubscriptions,
     AdminStatsUsers,
 )
+from schemas.email_template import EmailTemplateRead, EmailTemplateUpdate
 from schemas.newsletter import (
     NewsletterCampaignCreate,
     NewsletterCampaignRead,
@@ -25,6 +26,14 @@ from schemas.newsletter import (
     NewsletterScheduleRequest,
 )
 from service.admin_stats import get_admin_stats
+from service.email_template import (
+    list_templates,
+    reset_template,
+    resolve,
+    sample_values,
+    send_templated_email,
+    upsert_template,
+)
 from service.newsletter_campaign import (
     create_campaign,
     get_campaign,
@@ -173,3 +182,103 @@ async def admin_newsletters_process_due(
     """Send all scheduled campaigns past their scheduled_at (for cron/workers)."""
     n = await process_due_scheduled_campaigns(db)
     return {"processed": n}
+
+
+def _template_read(resolved) -> EmailTemplateRead:
+    return EmailTemplateRead(
+        key=resolved.key,
+        description=resolved.description,
+        placeholders=list(resolved.placeholders),
+        subject=resolved.subject,
+        body_text=resolved.body_text,
+        body_html=resolved.body_html,
+        enabled=resolved.enabled,
+        is_overridden=resolved.is_overridden,
+    )
+
+
+@router.get(
+    "/email-templates",
+    response_model=List[EmailTemplateRead],
+    responses=SUPERUSER,
+)
+async def admin_email_templates_list(
+    current_user: User = Depends(get_current_superuser),
+    db: AsyncSession = Depends(get_async_session),
+):
+    """List all user-email templates (catalog + DB overrides). Superuser only."""
+    rows = await list_templates(db)
+    return [_template_read(r) for r in rows]
+
+
+@router.get(
+    "/email-templates/{key}",
+    response_model=EmailTemplateRead,
+    responses=SUPERUSER,
+)
+async def admin_email_template_get(
+    key: str,
+    current_user: User = Depends(get_current_superuser),
+    db: AsyncSession = Depends(get_async_session),
+):
+    """Get one email template by catalog key. Superuser only."""
+    return _template_read(await resolve(db, key))
+
+
+@router.patch(
+    "/email-templates/{key}",
+    response_model=EmailTemplateRead,
+    responses=SUPERUSER,
+)
+async def admin_email_template_patch(
+    key: str,
+    body: EmailTemplateUpdate,
+    current_user: User = Depends(get_current_superuser),
+    db: AsyncSession = Depends(get_async_session),
+):
+    """Upsert an email template override. Superuser only."""
+    return _template_read(
+        await upsert_template(
+            db,
+            key,
+            subject=body.subject,
+            body_text=body.body_text,
+            body_html=body.body_html,
+            enabled=body.enabled,
+        )
+    )
+
+
+@router.post(
+    "/email-templates/{key}/reset",
+    response_model=EmailTemplateRead,
+    responses=SUPERUSER,
+)
+async def admin_email_template_reset(
+    key: str,
+    current_user: User = Depends(get_current_superuser),
+    db: AsyncSession = Depends(get_async_session),
+):
+    """Delete DB override so the next send uses the code default. Superuser only."""
+    return _template_read(await reset_template(db, key))
+
+
+@router.post(
+    "/email-templates/{key}/test",
+    status_code=status.HTTP_200_OK,
+    responses=SUPERUSER,
+)
+async def admin_email_template_test(
+    key: str,
+    current_user: User = Depends(get_current_superuser),
+    db: AsyncSession = Depends(get_async_session),
+):
+    """Send this template to the current superuser with sample placeholders. Superuser only."""
+    await resolve(db, key)
+    sent = await send_templated_email(
+        db,
+        key,
+        current_user.email,
+        sample_values(key, current_user.email),
+    )
+    return {"sent": sent}

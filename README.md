@@ -87,7 +87,7 @@ flit_core/
 
 | Area | Prefix | Description |
 |------|--------|-------------|
-| Auth | `/auth` | Register, login (form + JSON), JWT tokens |
+| Auth | `/auth` | Register, login (form + JSON), JWT refresh, logout |
 | User | `/users` | Current user profile, update |
 | Connect | `/connect` | Request code, exchange for OAuth-style tokens (app connection) |
 | OAuth | `/oauth` | Token refresh, revoke |

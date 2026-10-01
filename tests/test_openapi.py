@@ -20,6 +20,7 @@ def test_openapi_description_includes_authentication():
     desc = schema.get("info", {}).get("description", "")
     assert "Authentication" in desc
     assert "POST /api/auth/login-json" in desc
+    assert "POST /api/auth/refresh" in desc
 
 
 def test_api_tags_have_descriptions():

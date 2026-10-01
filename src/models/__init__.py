@@ -4,6 +4,7 @@ from .base import Base
 from .category import Category
 from .connection_code import ConnectionCode
 from .connected_app import ConnectedApp
+from .email_template import EmailTemplate
 from .feedback import Feedback
 from .feedback_response import FeedbackResponse
 from .newsletter_campaign import NewsletterCampaign, NewsletterStatus

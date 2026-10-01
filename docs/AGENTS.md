@@ -1,6 +1,6 @@
 # AGENTS.md — docs
 
-Human-facing guides (billing, MCP, password-reset frontend, admin webhooks).
+Human-facing guides (billing, MCP, password-reset frontend, admin webhooks, email templates).
 
 ## Prefer / avoid
 

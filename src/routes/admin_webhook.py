@@ -16,6 +16,7 @@ from schemas.admin_webhook import (
     AdminWebhookTestRequest,
     AdminWebhookTestResult,
     AdminWebhookUpdate,
+    AdminWebhookWithSecret,
 )
 from service import admin_webhook as webhook_service
 
@@ -50,7 +51,7 @@ async def list_webhooks(
 
 @router.post(
     "",
-    response_model=AdminWebhookRead,
+    response_model=AdminWebhookWithSecret,
     status_code=status.HTTP_201_CREATED,
     responses=SUPERUSER,
 )
@@ -59,17 +60,19 @@ async def create_webhook(
     current_user: User = Depends(get_current_superuser),
     db: AsyncSession = Depends(get_async_session),
 ):
-    """Create an admin webhook endpoint. Superuser only."""
+    """Create an admin webhook; signing secret is generated and returned once."""
     row = await webhook_service.create_webhook(
         db,
         name=body.name,
         url=body.url,
         events=body.events,
-        secret=body.secret,
         enabled=body.enabled,
         created_by=current_user.id,
     )
-    return AdminWebhookRead(**webhook_service.webhook_to_read_dict(row))
+    return AdminWebhookWithSecret(
+        **webhook_service.webhook_to_read_dict(row),
+        secret=row.secret or "",
+    )
 
 
 @router.get("/{webhook_id}", response_model=AdminWebhookRead, responses=SUPERUSER)
@@ -97,8 +100,6 @@ async def update_webhook(
         name=body.name,
         url=body.url,
         events=body.events,
-        secret=body.secret,
-        clear_secret=body.clear_secret,
         enabled=body.enabled,
     )
     return AdminWebhookRead(**webhook_service.webhook_to_read_dict(row))
@@ -116,6 +117,24 @@ async def delete_webhook(
 ):
     """Delete an admin webhook. Superuser only."""
     await webhook_service.delete_webhook(db, webhook_id)
+
+
+@router.post(
+    "/{webhook_id}/rotate-secret",
+    response_model=AdminWebhookWithSecret,
+    responses=SUPERUSER,
+)
+async def rotate_webhook_secret(
+    webhook_id: int,
+    current_user: User = Depends(get_current_superuser),
+    db: AsyncSession = Depends(get_async_session),
+):
+    """Replace the signing secret and return the new plaintext once. Superuser only."""
+    row = await webhook_service.rotate_webhook_secret(db, webhook_id)
+    return AdminWebhookWithSecret(
+        **webhook_service.webhook_to_read_dict(row),
+        secret=row.secret or "",
+    )
 
 
 @router.post(

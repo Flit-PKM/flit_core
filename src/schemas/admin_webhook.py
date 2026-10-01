@@ -14,10 +14,6 @@ class AdminWebhookCreate(BaseModel):
         min_length=1,
         description="Event types this endpoint subscribes to",
     )
-    secret: Optional[str] = Field(
-        None,
-        description="Optional HMAC secret for X-Flit-Signature",
-    )
     enabled: bool = True
 
 
@@ -25,14 +21,6 @@ class AdminWebhookUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=255)
     url: Optional[str] = Field(None, min_length=1)
     events: Optional[list[str]] = Field(None, min_length=1)
-    secret: Optional[str] = Field(
-        None,
-        description="Set a new HMAC secret; omit to leave unchanged",
-    )
-    clear_secret: bool = Field(
-        False,
-        description="If true, remove the HMAC secret",
-    )
     enabled: Optional[bool] = None
 
 
@@ -49,6 +37,15 @@ class AdminWebhookRead(BaseModel):
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class AdminWebhookWithSecret(AdminWebhookRead):
+    """Create/rotate response: plaintext secret shown once."""
+
+    secret: str = Field(
+        ...,
+        description="Standard Webhooks signing secret (whsec_…); shown only on create/rotate",
+    )
 
 
 class AdminWebhookTestRequest(BaseModel):

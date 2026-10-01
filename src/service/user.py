@@ -51,6 +51,17 @@ async def create_user(
             "username": db_user.username,
         },
     )
+    from service.email_template import send_templated_email
+
+    await send_templated_email(
+        session,
+        "welcome",
+        db_user.email,
+        {
+            "username": db_user.username or db_user.email,
+            "email": db_user.email,
+        },
+    )
     return db_user
 
 async def get_user(session: AsyncSession, user_id: int) -> User:

@@ -9,11 +9,13 @@ from turnstile import TurnstileVerificationError, verify_turnstile_token
 from schemas.user import UserCreate, UserRead, UserLogin, GoogleIdTokenLogin, Token
 from service.revoked_jwt import revoke_jti
 from service.user import create_user, get_user_by_email, touch_last_login
+from service.verification import send_verification_email
 from auth.password import get_password_hash, verify_password
 from auth.username_from_email import derive_username_from_email
 from auth.google_id_token import verify_google_login_id_token
 from jose import jwt as jose_jwt
 
+from auth.dependencies import get_current_active_user
 from auth.jwt import create_access_token, decode_login_token_claims
 from config import settings
 from logging_config import get_logger
@@ -142,6 +144,8 @@ async def register(
 
     # Create the user
     db_user = await create_user(db, user_data)
+    # ponytail: sequential SMTP (welcome in create_user, then verify); queue if register latency bites.
+    await send_verification_email(db, db_user)
     logger.info(f"User registered successfully: {db_user.id} - {db_user.email} - {db_user.username}")
     return db_user
 
@@ -262,6 +266,16 @@ async def login_google(
     await touch_last_login(db, user.id)
     logger.info("User logged in via Google: %s - %s", user.id, user.email)
     return create_login_response(user)
+
+
+@router.post("/refresh", response_model=Token)
+@limiter.limit("30/minute")
+async def refresh_login(
+    request: Request,
+    current_user: User = Depends(get_current_active_user),
+):
+    """Issue a new login JWT. Requires a still-valid, non-revoked login token."""
+    return create_login_response(current_user)
 
 
 @router.post("/logout")

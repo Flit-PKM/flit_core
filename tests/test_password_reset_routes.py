@@ -55,7 +55,7 @@ async def test_request_reset_unverified_email_returns_sent_true_no_email_sent(
     with (
         patch("service.password_reset.public_base_url", return_value="https://core.flit-pkm.com"),
         patch("service.password_reset.settings", mock_settings),
-        patch("service.password_reset.send_email", mock_send_email),
+        patch("service.email_template.send_email", mock_send_email),
     ):
         response = test_client.post(
             "/api/password-reset/request",
@@ -116,7 +116,7 @@ async def test_request_reset_known_email_sends(
     with (
         patch("service.password_reset.public_base_url", return_value="https://core.flit-pkm.com"),
         patch("service.password_reset.settings", mock_settings),
-        patch("service.password_reset.send_email", mock_send_email),
+        patch("service.email_template.send_email", mock_send_email),
     ):
         response = test_client.post(
             "/api/password-reset/request",
@@ -155,7 +155,7 @@ async def test_request_reset_cooldown_returns_sent_false(
     with (
         patch("service.password_reset.public_base_url", return_value="https://core.flit-pkm.com"),
         patch("service.password_reset.settings", mock_settings),
-        patch("service.password_reset.send_email", mock_send_email),
+        patch("service.email_template.send_email", mock_send_email),
         patch(
             "service.password_reset._password_reset_cooldown",
             {normalized: 9999999999},
@@ -267,7 +267,7 @@ async def test_request_reset_requires_turnstile_when_secret_set(
         patch("routes.password_reset.verify_turnstile_token", new_callable=AsyncMock) as mock_verify,
         patch("service.password_reset.public_base_url", return_value="https://core.flit-pkm.com"),
         patch("service.password_reset.settings", mock_settings),
-        patch("service.password_reset.send_email", mock_send_email),
+        patch("service.email_template.send_email", mock_send_email),
     ):
         mock_verify.return_value = {"success": True}
         response = test_client.post(

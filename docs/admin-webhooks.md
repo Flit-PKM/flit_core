@@ -10,10 +10,11 @@ All endpoints require a superuser JWT (`Authorization: Bearer …`).
 |--------|------|-------------|
 | `GET` | `/api/admin/webhooks/event-types` | Catalog of event type strings |
 | `GET` | `/api/admin/webhooks` | List endpoints (secrets masked) |
-| `POST` | `/api/admin/webhooks` | Create endpoint |
+| `POST` | `/api/admin/webhooks` | Create endpoint (generates signing secret) |
 | `GET` | `/api/admin/webhooks/{id}` | Read one endpoint |
 | `PATCH` | `/api/admin/webhooks/{id}` | Update endpoint |
 | `DELETE` | `/api/admin/webhooks/{id}` | Delete endpoint |
+| `POST` | `/api/admin/webhooks/{id}/rotate-secret` | Replace signing secret |
 | `POST` | `/api/admin/webhooks/{id}/test` | Fire a test event (awaits delivery) |
 
 Create body example:
@@ -23,14 +24,13 @@ Create body example:
   "name": "Ops monitor",
   "url": "https://hooks.example.com/flit",
   "events": ["user.signup", "subscription.active", "error.unhandled"],
-  "secret": "optional-hmac-secret",
   "enabled": true
 }
 ```
 
-In production (`ENVIRONMENT=production`), URLs must use `https`.
+Create and rotate responses include the plaintext `secret` once (`whsec_` + base64). Copy it into the receiver; later GET/PATCH/list only expose `secret_set` and `secret_last4`.
 
-Secrets are never returned in full: responses expose `secret_set` and `secret_last4` only. Use `clear_secret: true` on PATCH to remove a secret.
+In production (`ENVIRONMENT=production`), URLs must use `https`.
 
 ## Event catalog
 
@@ -68,18 +68,27 @@ Headers:
 
 - `Content-Type: application/json`
 - `X-Flit-Event: <event type>`
-- `X-Flit-Signature: sha256=<hex>` (only when a secret is configured)
+- `webhook-id`: message id (same as payload `id`)
+- `webhook-timestamp`: unix seconds
+- `webhook-signature: v1,<base64>`
+
+Signing follows [Standard Webhooks](https://github.com/standard-webhooks/standard-webhooks): HMAC-SHA256 over `{id}.{timestamp}.{raw_body}`. Secrets are generated as `whsec_` + base64(24 random bytes). The receiver must **base64-decode** the secret (after stripping `whsec_`) to get the HMAC key.
 
 ### Verifying the signature
 
 ```python
+import base64
 import hashlib
 import hmac
 
-def verify(secret: str, body: bytes, header: str) -> bool:
-    expected = "sha256=" + hmac.new(
-        secret.encode("utf-8"), body, hashlib.sha256
-    ).hexdigest()
+def verify(secret: str, body: bytes, msg_id: str, timestamp: str, header: str) -> bool:
+    raw = secret[6:] if secret.startswith("whsec_") else secret
+    raw += "=" * ((4 - len(raw) % 4) % 4)
+    key = base64.b64decode(raw)
+    signed = f"{msg_id}.{timestamp}.{body.decode()}".encode()
+    expected = "v1," + base64.b64encode(
+        hmac.new(key, signed, hashlib.sha256).digest()
+    ).decode()
     return hmac.compare_digest(expected, header)
 ```
 

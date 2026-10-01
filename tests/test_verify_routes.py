@@ -77,7 +77,8 @@ async def test_send_verification_sends_email_when_configured(
     with (
         patch("service.verification.public_base_url", return_value="https://core.flit-pkm.com"),
         patch("service.verification.settings", mock_settings),
-        patch("service.verification.send_email", mock_send_email),
+        patch("service.email_template.send_email", mock_send_email),
+        patch("service.verification._verification_cooldown", {}),
     ):
         token = _login(test_client, sample_user_data["email"], sample_user_data["password"])
         response = test_client.get(
@@ -111,7 +112,7 @@ async def test_send_verification_already_verified_returns_sent_true(
 
     with (
         patch("service.verification.public_base_url", return_value="https://core.flit-pkm.com"),
-        patch("service.verification.send_email", mock_send_email),
+        patch("service.email_template.send_email", mock_send_email),
     ):
         token = _login(test_client, sample_user_data["email"], sample_user_data["password"])
         response = test_client.get(
@@ -167,7 +168,7 @@ async def test_send_verification_cooldown_returns_sent_false(
     with (
         patch("service.verification.public_base_url", return_value="https://core.flit-pkm.com"),
         patch("service.verification.settings", mock_settings),
-        patch("service.verification.send_email", mock_send_email),
+        patch("service.email_template.send_email", mock_send_email),
         patch("service.verification._verification_cooldown", {user.id: 9999999999}),  # Far future
     ):
         token = _login(test_client, sample_user_data["email"], sample_user_data["password"])

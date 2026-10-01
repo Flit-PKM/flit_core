@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 import hashlib
 import hmac
 import json
+import secrets
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -146,9 +149,33 @@ def build_envelope(event_type: str, data: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def sign_body(secret: str, body: bytes) -> str:
-    digest = hmac.new(secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
-    return f"sha256={digest}"
+def generate_webhook_secret() -> str:
+    """Standard Webhooks secret: whsec_ + base64(24 random bytes)."""
+    return "whsec_" + base64.b64encode(secrets.token_bytes(24)).decode("ascii")
+
+
+def hmac_key(secret: str) -> bytes:
+    """Standard Webhooks key: strip optional whsec_, then base64-decode."""
+    raw = secret.strip()
+    if raw.startswith("whsec_"):
+        raw = raw[6:]
+    padded = raw + ("=" * ((4 - len(raw) % 4) % 4))
+    try:
+        return base64.b64decode(padded, validate=True)
+    except (binascii.Error, ValueError):
+        return secret.encode("utf-8")
+
+
+def sign_standard_webhook(
+    secret: str,
+    msg_id: str,
+    timestamp: int | str,
+    body: bytes,
+) -> str:
+    """Return webhook-signature value: v1,<base64(hmac-sha256(id.timestamp.body))>."""
+    signed = f"{msg_id}.{timestamp}.{body.decode('utf-8')}".encode("utf-8")
+    digest = hmac.new(hmac_key(secret), signed, hashlib.sha256).digest()
+    return f"v1,{base64.b64encode(digest).decode('ascii')}"
 
 
 def build_sample_payload(event_type: str) -> dict[str, Any]:
@@ -250,7 +277,6 @@ async def create_webhook(
     name: str,
     url: str,
     events: list[str],
-    secret: Optional[str] = None,
     enabled: bool = True,
     created_by: Optional[int] = None,
 ) -> AdminWebhook:
@@ -259,7 +285,7 @@ async def create_webhook(
     row = AdminWebhook(
         name=name.strip(),
         url=validated_url,
-        secret=(secret.strip() if secret and secret.strip() else None),
+        secret=generate_webhook_secret(),
         events=validated_events,
         enabled=enabled,
         created_by=created_by,
@@ -278,8 +304,6 @@ async def update_webhook(
     name: Optional[str] = None,
     url: Optional[str] = None,
     events: Optional[list[str]] = None,
-    secret: Optional[str] = None,
-    clear_secret: bool = False,
     enabled: Optional[bool] = None,
 ) -> AdminWebhook:
     row = await get_webhook(db, webhook_id)
@@ -289,14 +313,20 @@ async def update_webhook(
         row.url = validate_webhook_url(url)
     if events is not None:
         row.events = validate_event_types(events)
-    if clear_secret:
-        row.secret = None
-    elif secret is not None:
-        row.secret = secret.strip() if secret.strip() else None
     if enabled is not None:
         row.enabled = enabled
     await db.flush()
     await db.refresh(row)
+    return row
+
+
+async def rotate_webhook_secret(db: AsyncSession, webhook_id: int) -> AdminWebhook:
+    """Replace the signing secret. Plaintext is on the returned row (show once)."""
+    row = await get_webhook(db, webhook_id)
+    row.secret = generate_webhook_secret()
+    await db.flush()
+    await db.refresh(row)
+    logger.info("Admin webhook secret rotated id=%s", webhook_id)
     return row
 
 
@@ -370,7 +400,13 @@ async def deliver_to_endpoint(
         "User-Agent": "Flit-Admin-Webhook/1.0",
     }
     if destination.secret:
-        headers["X-Flit-Signature"] = sign_body(destination.secret, body)
+        msg_id = str(envelope.get("id") or uuid.uuid4())
+        timestamp = str(int(time.time()))
+        headers["webhook-id"] = msg_id
+        headers["webhook-timestamp"] = timestamp
+        headers["webhook-signature"] = sign_standard_webhook(
+            destination.secret, msg_id, timestamp, body
+        )
 
     started = time.perf_counter()
     try:

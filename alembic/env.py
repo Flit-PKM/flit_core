@@ -34,6 +34,7 @@ from models import (  # noqa: F401
     Category,
     ConnectedApp,
     ConnectionCode,
+    EmailTemplate,
     Feedback,
     FeedbackResponse,
     McpAccessToken,
