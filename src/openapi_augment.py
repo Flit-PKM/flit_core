@@ -10,8 +10,8 @@ CORE_DESCRIPTION = """Flit PKM backend API.
 
 ## Authentication
 
-1. **Register** (optional): `POST /api/auth/register` with JSON body.
-2. **Login** for a JWT:
+1. **Register**: `POST /api/auth/register` creates an unverified user and returns the same bearer token as login. Login does not create users.
+2. **Login** for a JWT (existing users only):
    - `POST /api/auth/login` — `application/x-www-form-urlencoded` (OAuth2 password flow; `username` is email).
    - `POST /api/auth/login-json` — `application/json` with `email` and `password`.
    - `POST /api/auth/login-google` — Google ID token.

@@ -13,6 +13,8 @@ Login JWT, password hashing, FastAPI dependencies, typed one-shot tokens (verify
 ## Invariants
 
 - Login path uses email in `sub`; never treat OAuth/MCP tokens as login JWTs.
+- Password login (`/auth/login`, `/auth/login-json`) returns one 401 `Incorrect email or password` for unknown email, wrong password, OAuth-only, and inactive. Do not auto-create on login.
+- `POST /auth/register` returns a login `Token`. Duplicate email is 409. Unverified users may still log in.
 - Revocation checks `jti` against `revoked_jwts`.
 - Sliding renewal is `POST /auth/refresh` (still-valid login JWT only). Do not mix with `/oauth` refresh.
 

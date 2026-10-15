@@ -260,8 +260,6 @@ async def oauth_login(
         resp.status_code = status.HTTP_401_UNAUTHORIZED
         return resp
 
-    if not user.is_active:
-        raise HTTPException(status_code=403, detail="Inactive user")
     await touch_last_login(db, user.id)
 
     await set_pending_user(db, pending, user.id)

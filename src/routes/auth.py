@@ -4,9 +4,10 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer, OAuth2Pas
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database.session import get_async_session
+from exceptions import ConflictError
 from limiter import limiter
 from turnstile import TurnstileVerificationError, verify_turnstile_token
-from schemas.user import UserCreate, UserRead, UserLogin, GoogleIdTokenLogin, Token
+from schemas.user import UserCreate, UserLogin, GoogleIdTokenLogin, Token
 from service.revoked_jwt import revoke_jti
 from service.user import create_user, get_user_by_email, touch_last_login
 from service.verification import send_verification_email
@@ -31,49 +32,41 @@ router = APIRouter(
 )
 
 
+def _login_failure() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Incorrect email or password",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
 async def authenticate_user(
     db: AsyncSession,
     email: str,
     password: str,
 ) -> User:
     """Authenticate a user by email and password.
-    
-    Args:
-        db: Database session
-        email: User email
-        password: Plain text password
-        
-    Returns:
-        User object if authentication succeeds
-        
-    Raises:
-        HTTPException: If authentication fails
+
+    Unknown email, wrong password, OAuth-only accounts, and inactive users
+    share one 401. Do not branch the response on which case it was.
     """
     user = await get_user_by_email(db, email)
     if not user:
         logger.warning(f"Login failed - user not found: {email}")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email or password",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+        raise _login_failure()
 
     if user.password_hash is None:
         logger.warning(f"Login failed - password login not available for OAuth-only user: {email}")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email or password",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+        raise _login_failure()
 
     if not verify_password(password, user.password_hash):
         logger.warning(f"Login failed - invalid password for user: {email}")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email or password",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    
+        raise _login_failure()
+
+    if not user.is_active:
+        logger.warning(f"Login failed - inactive user: {email}")
+        raise _login_failure()
+
     return user
 
 
@@ -93,7 +86,7 @@ def create_login_response(user: User) -> dict:
     return {"access_token": access_token, "token_type": "bearer"}
 
 
-@router.post("/register", response_model=UserRead, status_code=status.HTTP_201_CREATED)
+@router.post("/register", response_model=Token, status_code=status.HTTP_201_CREATED)
 @limiter.limit("5/minute")
 async def register(
     request: Request,
@@ -119,14 +112,11 @@ async def register(
                 detail="Human verification failed. Please try again.",
             )
 
-    # Check if user already exists
+    # Explicit signup may say the email is taken. Login must not.
     existing_user = await get_user_by_email(db, user.email)
     if existing_user:
         logger.warning(f"Registration failed - email already exists: {user.email}")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Email already registered"
-        )
+        raise ConflictError("Email already registered")
 
     # Generate username from email if not provided
     if not user.username:
@@ -147,7 +137,7 @@ async def register(
     # ponytail: sequential SMTP (welcome in create_user, then verify); queue if register latency bites.
     await send_verification_email(db, db_user)
     logger.info(f"User registered successfully: {db_user.id} - {db_user.email} - {db_user.username}")
-    return db_user
+    return create_login_response(db_user)
 
 
 @router.post("/login", response_model=Token)
@@ -160,46 +150,10 @@ async def login(
     """Login and get access token."""
     logger.info(f"Login attempt for email: {form_data.username}")
 
-    # Get user by email
-    user = await get_user_by_email(db, form_data.username)
-    if not user:
-        logger.warning(f"Login failed - user not found: {form_data.username}")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email or password",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    if user.password_hash is None:
-        logger.warning(
-            "Login failed - password login not available for OAuth-only user: %s",
-            form_data.username,
-        )
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email or password",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    # Verify password
-    if not verify_password(form_data.password, user.password_hash):
-        logger.warning(f"Login failed - invalid password for user: {form_data.username}")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email or password",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
+    user = await authenticate_user(db, form_data.username, form_data.password)
     await touch_last_login(db, user.id)
-
-    # Create access token
-    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-    access_token = create_access_token(
-        data={"sub": user.email}, expires_delta=access_token_expires
-    )
-
     logger.info(f"User logged in successfully: {user.id} - {user.email}")
-    return {"access_token": access_token, "token_type": "bearer"}
+    return create_login_response(user)
 
 
 @router.post("/login-json", response_model=Token)

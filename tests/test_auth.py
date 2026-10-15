@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 import pytest
 from fastapi import status
 from httpx import AsyncClient
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import settings
@@ -25,16 +25,23 @@ async def test_register_user_success(
     test_db_session: AsyncSession,
     sample_user_data: dict,
 ):
-    """Test successful user registration."""
+    """Test successful user registration returns a session."""
     response = test_client.post("/api/auth/register", json=sample_user_data)
-    
+
     assert response.status_code == status.HTTP_201_CREATED
     data = response.json()
-    assert data["email"] == sample_user_data["email"]
-    assert data["username"] == sample_user_data["username"]
-    assert "password" not in data
-    assert "password_hash" not in data
-    assert "id" in data
+    assert data["token_type"] == "bearer"
+    assert data["access_token"]
+
+    me = test_client.get(
+        "/api/user/",
+        headers={"Authorization": f"Bearer {data['access_token']}"},
+    )
+    assert me.status_code == status.HTTP_200_OK
+    body = me.json()
+    assert body["email"] == sample_user_data["email"]
+    assert body["username"] == sample_user_data["username"]
+    assert body["is_verified"] is False
 
 
 @pytest.mark.asyncio
@@ -43,18 +50,16 @@ async def test_register_duplicate_email(
     test_db_session: AsyncSession,
     sample_user_data: dict,
 ):
-    """Test registration with duplicate email fails."""
-    # Create first user
-    user_data = sample_user_data.copy()
-    user_data["password_hash"] = get_password_hash(user_data.pop("password"))
-    await create_user(test_db_session, user_data)
-    await test_db_session.commit()
-    
-    # Try to register again with same email
+    """Duplicate register is 409 and does not mint a second user."""
+    first = test_client.post("/api/auth/register", json=sample_user_data)
+    assert first.status_code == status.HTTP_201_CREATED
+
     response = test_client.post("/api/auth/register", json=sample_user_data)
-    
-    assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    assert response.status_code == status.HTTP_409_CONFLICT
     assert "already registered" in response.json()["detail"].lower()
+    count = await test_db_session.scalar(select(func.count()).select_from(User))
+    assert count == 1
 
 
 @pytest.mark.asyncio
@@ -66,6 +71,7 @@ async def test_register_with_turnstile_required_when_secret_set(
     """When TURNSTILE_SECRET is set, registration requires valid token; with mocked token succeeds."""
     mock_settings = MagicMock()
     mock_settings.TURNSTILE_SECRET = "test-secret"
+    mock_settings.ACCESS_TOKEN_EXPIRE_MINUTES = settings.ACCESS_TOKEN_EXPIRE_MINUTES
 
     with (
         patch("routes.auth.settings", mock_settings),
@@ -77,7 +83,7 @@ async def test_register_with_turnstile_required_when_secret_set(
             json={**sample_user_data, "cf_turnstile_response": "mock-token"},
         )
     assert response.status_code == status.HTTP_201_CREATED
-    assert response.json()["email"] == sample_user_data["email"]
+    assert response.json()["token_type"] == "bearer"
 
     # Without token returns 400 (mock raises when token is missing)
     async def verify_side_effect(token, client_ip=None):
@@ -170,6 +176,86 @@ async def test_login_invalid_password(
     
     assert response.status_code == status.HTTP_401_UNAUTHORIZED
     assert "incorrect" in response.json()["detail"].lower()
+
+
+def _login_failure(test_client: AsyncClient, email: str, password: str):
+    return test_client.post(
+        "/api/auth/login-json",
+        json={"email": email, "password": password},
+    )
+
+
+@pytest.mark.asyncio
+async def test_login_failures_are_identical(
+    test_client: AsyncClient,
+    test_db_session: AsyncSession,
+    sample_user_data: dict,
+):
+    """Unknown email, wrong password, and inactive user share one 401."""
+    user_data = sample_user_data.copy()
+    password = user_data.pop("password")
+    user_data["password_hash"] = get_password_hash(password)
+    await create_user(test_db_session, user_data)
+
+    inactive = sample_user_data.copy()
+    inactive["email"] = "inactive@example.com"
+    inactive["username"] = "inactiveuser"
+    inactive.pop("password")
+    inactive["password_hash"] = get_password_hash(password)
+    inactive["is_active"] = False
+    await create_user(test_db_session, inactive)
+    await test_db_session.commit()
+
+    unknown = _login_failure(test_client, "nonexistent@example.com", password)
+    wrong = _login_failure(test_client, sample_user_data["email"], "wrongpassword")
+    inactive_resp = _login_failure(test_client, "inactive@example.com", password)
+
+    assert unknown.status_code == wrong.status_code == inactive_resp.status_code
+    assert unknown.json() == wrong.json() == inactive_resp.json()
+    assert unknown.json()["detail"] == "Incorrect email or password"
+    assert (
+        unknown.headers.get("www-authenticate")
+        == wrong.headers.get("www-authenticate")
+        == inactive_resp.headers.get("www-authenticate")
+        == "Bearer"
+    )
+
+
+@pytest.mark.asyncio
+async def test_login_unverified_user(
+    test_client: AsyncClient,
+    test_db_session: AsyncSession,
+    sample_user_data: dict,
+):
+    """Unverified users can log in."""
+    user_data = sample_user_data.copy()
+    password = user_data.pop("password")
+    user_data["password_hash"] = get_password_hash(password)
+    user_data["is_verified"] = False
+    await create_user(test_db_session, user_data)
+    await test_db_session.commit()
+
+    response = test_client.post(
+        "/api/auth/login-json",
+        json={"email": sample_user_data["email"], "password": password},
+    )
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json()["token_type"] == "bearer"
+
+
+@pytest.mark.asyncio
+async def test_register_weak_password(
+    test_client: AsyncClient,
+    test_db_session: AsyncSession,
+    sample_user_data: dict,
+):
+    """Passwords shorter than 8 characters are rejected and create no user."""
+    payload = sample_user_data.copy()
+    payload["password"] = "short"
+    response = test_client.post("/api/auth/register", json=payload)
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    count = await test_db_session.scalar(select(func.count()).select_from(User))
+    assert count == 0
 
 
 @pytest.mark.asyncio

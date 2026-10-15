@@ -1,0 +1,1 @@
+import{i as o,k as _,m as c,an as d,o as T,H as b,q as v,j as y,ao as E,v as i}from"./CCS6dnm2.js";function k(n,f,u=!1){_&&c();var r=new E(n),h=u?d:0;function t(a,s){if(_){const l=T(n)===b;if(a===l){var e=v();y(e),r.anchor=e,i(!1),r.ensure(a,s),i(!0);return}}r.ensure(a,s)}o(()=>{var a=!1;f((s,e=!0)=>{a=!0,t(e,s)}),a||t(!1,null)},h)}export{k as i};
